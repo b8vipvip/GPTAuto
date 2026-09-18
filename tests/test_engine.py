@@ -1,20 +1,19 @@
 import unittest
-from gptauto.engine import ProtocolError, Signal, advance, is_complete
-from gptauto.model import State, Task
-
+from gptauto.engine import ProtocolError,begin_verify,criterion,finish,gate,is_complete,plan_ready,start
+from gptauto.model import Criterion,CriterionStatus,Gate,GateStatus,State,Task
+from gptauto.planner import GoalPlanner
 class EngineTests(unittest.TestCase):
-    def task(self): return Task("t1","ship fix","o/r",["verified"],max_repair_attempts=2)
-    def test_happy_path(self):
+    def task(self):
+        t=Task("t1","修改 README 文档","o/r",[]);start(t);GoalPlanner().apply(t);plan_ready(t);return t
+    def test_dynamic_happy_path(self):
         t=self.task()
-        for x in ["accepted","ready","committed","opened","passed","merged","passed","skipped","verified"]: advance(t,Signal(x))
-        self.assertEqual(t.state,State.DONE); self.assertTrue(is_complete(t))
-    def test_ci_failure_repair_loop(self):
+        for s in t.plan:gate(t,s.gate,GateStatus.PASSED,"ok")
+        begin_verify(t)
+        for i in range(len(t.definition_of_done)):criterion(t,i,CriterionStatus.PASSED,"ok")
+        finish(t);self.assertEqual(t.state,State.DONE);self.assertTrue(is_complete(t))
+    def test_failed_gate_consumes_repair_budget(self):
+        t=self.task();t.max_repair_attempts=1;gate(t,t.plan[0].gate,GateStatus.FAILED,"x");gate(t,t.plan[0].gate,GateStatus.FAILED,"x");self.assertEqual(t.state,State.BLOCKED)
+    def test_unplanned_gate_is_rejected(self):
         t=self.task()
-        for x in ["accepted","ready","committed","opened","failed","fixable","committed","passed"]: advance(t,Signal(x))
-        self.assertEqual(t.state,State.MERGE); self.assertEqual(t.repair_attempts,1)
-    def test_repair_budget_blocks(self):
-        t=self.task(); t.state=State.ANALYZE; t.repair_attempts=2; advance(t,Signal("fixable")); self.assertEqual(t.state,State.BLOCKED)
-    def test_invalid_transition(self):
-        with self.assertRaises(ProtocolError): advance(self.task(),Signal("merged"))
-
-if __name__=="__main__": unittest.main()
+        with self.assertRaises(ProtocolError):gate(t,Gate.RELEASE,GateStatus.PASSED)
+if __name__=="__main__":unittest.main()
