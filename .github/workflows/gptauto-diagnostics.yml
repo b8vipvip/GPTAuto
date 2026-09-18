@@ -1,0 +1,65 @@
+name: GPTAuto Diagnostics
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: GPTAuto task ID
+        required: true
+        type: string
+      task_state_json:
+        description: Optional JSON task state used to regenerate audit files
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: gptauto-diagnostics-${{ inputs.task_id }}
+  cancel-in-progress: false
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Restore supplied task state
+        if: ${{ inputs.task_state_json != '' }}
+        shell: bash
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          TASK_STATE_JSON: ${{ inputs.task_state_json }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p .gptauto
+          printf '%s' "$TASK_STATE_JSON" > .gptauto/task.json
+          python -m gptauto.cli log .gptauto/task.json
+      - name: Require diagnostic directory
+        shell: bash
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+        run: |
+          set -Eeuo pipefail
+          [[ -d ".gptauto/logs/$TASK_ID" ]] || {
+            echo "::error::No local diagnostic directory exists in this runner. Supply task_state_json or invoke the reusable upload action from the workflow that ran GPTAuto."
+            exit 1
+          }
+      - id: upload
+        uses: ./.github/actions/upload-gptauto-log
+        with:
+          task-id: ${{ inputs.task_id }}
+          retention-days: '30'
+      - name: Diagnostic pointer
+        shell: bash
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          ARTIFACT: ${{ steps.upload.outputs.artifact-name }}
+        run: |
+          {
+            echo "## GPTAuto diagnostic"
+            echo "- Task ID: `$TASK_ID`"
+            echo "- Artifact: `$ARTIFACT`"
+            echo "- Run ID: `$GITHUB_RUN_ID`"
+            echo "- Repository: `$GITHUB_REPOSITORY`"
+          } >> "$GITHUB_STEP_SUMMARY"

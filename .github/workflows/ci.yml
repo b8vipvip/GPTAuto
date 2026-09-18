@@ -20,3 +20,20 @@ jobs:
           python-version: '3.12'
       - run: python -m unittest discover -s tests -v
       - run: python -m compileall -q gptauto
+      - name: Smoke-test diagnostic artifact action inputs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python -m gptauto.cli init --goal "CI diagnostic smoke test" --repo "${{ github.repository }}" --out .gptauto/task.json > /tmp/gptauto-init.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path("/tmp/gptauto-init.json").read_text())
+          Path("/tmp/task-id").write_text(Path(data["directory"]).name)
+          PY
+          echo "TASK_ID=$(cat /tmp/task-id)" >> "$GITHUB_ENV"
+      - name: Upload smoke-test diagnostics
+        uses: ./.github/actions/upload-gptauto-log
+        with:
+          task-id: ${{ env.TASK_ID }}
+          retention-days: '1'
