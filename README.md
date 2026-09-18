@@ -5,7 +5,7 @@
 <a id="中文"></a>
 ## 中文（默认）
 
-GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与参考实现。它不再把所有任务强制塞进固定的“PR → CI → Merge → Release”流水线，而是先理解目标、生成该任务自己的 Definition of Done（DoD），再动态选择真正需要的 Gate。
+GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与参考实现。v0.3 新增可观测性与审计日志，让每个任务的 Gate、DoD、evidence、修复次数和最终状态都有机器可验证轨迹。它不再把所有任务强制塞进固定的“PR → CI → Merge → Release”流水线，而是先理解目标、生成该任务自己的 Definition of Done（DoD），再动态选择真正需要的 Gate。
 
 ### 核心原则
 
@@ -33,7 +33,7 @@ GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与
 
 可以使用多个 `--gate` 和 `--done` 显式覆盖自动规划，供 GPTWork 等宿主的推理层传入更准确的计划。
 
-详见 `docs/PROTOCOL.md` 与 `docs/INTEGRATION.md`。
+默认审计日志生成在 `.gptauto/logs/<TASK_ID>/`，包含 `task.log`、`state.json`、`events.jsonl`、`summary.md`。详见 `docs/OBSERVABILITY.md`、`docs/PROTOCOL.md` 与 `docs/INTEGRATION.md`。
 
 <a id="english"></a>
 ## English
