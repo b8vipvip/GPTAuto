@@ -1,37 +1,51 @@
 # GPTAuto
 
-GPTAuto is an autonomous GitHub engineering workflow protocol and reference implementation.
+[中文](#中文) · [English](#english)
 
-**Core rule:** a task is goal-bound, not chat-turn-bound. A worker does not report completion merely because it created a commit/PR, entered an Actions queue, merged code, or started a release. It continues or resumes until the Definition of Done is verified, or an explicit BLOCKED condition requires human input.
+<a id="中文"></a>
+## 中文（默认）
 
-State machine:
+GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与参考实现。它不再把所有任务强制塞进固定的“PR → CI → Merge → Release”流水线，而是先理解目标、生成该任务自己的 Definition of Done（DoD），再动态选择真正需要的 Gate。
 
-    GOAL -> INSPECT -> IMPLEMENT -> PR -> WAIT_CI -> MERGE -> MAIN_CI -> RELEASE -> VERIFY -> DONE
-                                      |                    |          |          |
-                                      +-> ANALYZE -> FIX <-+----------+----------+
+### 核心原则
 
-## v0.1 capabilities
+**任务边界由最终目标决定，不由对话轮次决定。**
 
-- durable task contract and history
-- explicit Definition of Done
-- bounded repair budget and BLOCKED escalation
-- GitHub PR / Actions / release observation adapter
-- autonomous reconciliation of WAIT_CI, MERGE, MAIN_CI, RELEASE and VERIFY
-- queued/running Actions are WAITING, never DONE
-- CLI task init/status/manual-step/reconcile commands
-- Actions Policy Check, Governor, bounded Recovery and optional Housekeeping
-- unit tests for happy path, failure repair, repair budget and async orchestration
+流程模型：
 
-## Quick start
+    GOAL → PLAN / DoD → EXECUTE selected gates → VERIFY DoD → DONE
+
+可选 Gate 包括：`INSPECT`、`IMPLEMENT`、`COMMIT`、`PR`、`PR_CI`、`MERGE`、`MAIN_CI`、`RELEASE`、`DEPLOY`、`RUNTIME_VERIFY`。
+
+例如：
+- “修改 README 并提交”不强制 Merge/Release。
+- “修复 Actions 直到 CI 全绿”以 CI 目标达成为终态，不强制 Release。
+- “把代码合并到 main”要求 Merge，但不自动要求发布版本。
+- “修复并发布 v1.2.3 正式版”才选择 PR、CI、Merge、main CI、Release 等必要 Gate。
+
+`queued/running` 仍然只是 WAITING；但只有当 CI 本身属于当前任务的动态计划时，它才会阻止 DONE。所有 DoD 条目必须有通过状态和证据，才能进入 DONE。
+
+### 快速开始
 
     python -m unittest discover -s tests -v
-    python -m gptauto.cli init --goal "Ship a verified fix" --repo owner/repo --out task.json
-    python -m gptauto.cli step task.json accepted
+    python -m gptauto.cli init --goal "把代码合并到 main" --repo owner/repo --out task.json
     python -m gptauto.cli status task.json
-    python -m gptauto.cli reconcile task.json --max-polls 1
 
-GitHub observation uses the `gh` CLI and its existing authentication (`GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth`).
+可以使用多个 `--gate` 和 `--done` 显式覆盖自动规划，供 GPTWork 等宿主的推理层传入更准确的计划。
 
-See `docs/PROTOCOL.md` and `docs/INTEGRATION.md`.
+详见 `docs/PROTOCOL.md` 与 `docs/INTEGRATION.md`。
 
-GPTAuto is developed standalone first, then embedded into GPTWork.
+<a id="english"></a>
+## English
+
+GPTAuto is a goal-bound GitHub engineering workflow protocol and reference implementation. Instead of forcing every task through a fixed PR/CI/Merge/Release pipeline, it derives a task-specific Definition of Done and selects only the gates required by the requested outcome.
+
+Core lifecycle:
+
+    GOAL → PLAN / DoD → EXECUTE selected gates → VERIFY DoD → DONE
+
+Available gates include `INSPECT`, `IMPLEMENT`, `COMMIT`, `PR`, `PR_CI`, `MERGE`, `MAIN_CI`, `RELEASE`, `DEPLOY`, and `RUNTIME_VERIFY`.
+
+A documentation commit does not inherently require a release. A “CI green” goal can finish at CI. A merge goal requires merge evidence but not a release. A release goal selects the full release-related chain. Asynchronous Actions states are WAITING only when their gate is part of the current plan.
+
+Every DoD criterion requires explicit passed evidence before the task can enter DONE.
