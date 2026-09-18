@@ -1,0 +1,34 @@
+name: Actions Governor
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+permissions:
+  actions: write
+  contents: read
+concurrency:
+  group: gptauto-actions-governor
+  cancel-in-progress: true
+jobs:
+  govern:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Cancel stale safe runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          repo="$GITHUB_REPOSITORY"; current="$GITHUB_RUN_ID"; now="$(date -u +%s)"
+          for status in queued in_progress; do
+            gh api --paginate "repos/$repo/actions/runs?status=$status&per_page=100" --jq '.workflow_runs[] | [.id,.name,.status,(.run_started_at//.created_at)] | @tsv'
+          done | while IFS=$'\t' read -r id name status started; do
+            [[ "$id" == "$current" ]] && continue
+            low="${name,,}"; [[ "$low" == *release* || "$low" == *deploy* || "$low" == *publish* || "$low" == *governor* || "$low" == *recovery* ]] && continue
+            age=$(( (now-$(date -u -d "$started" +%s))/60 ))
+            if [[ ("$status" == queued && "$age" -ge 30) || ("$status" == in_progress && "$age" -ge 90) ]]; then
+              echo "Cancel stale safe run $id ($name), age=${age}m"
+              gh api --method POST "repos/$repo/actions/runs/$id/cancel" >/dev/null 2>&1 || true
+            fi
+          done
