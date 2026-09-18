@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gptauto"
+version = "0.1.0"
+description = "Autonomous GitHub engineering workflow protocol and state engine"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+gptauto = "gptauto.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["gptauto*"]
