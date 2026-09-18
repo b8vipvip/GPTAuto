@@ -1,0 +1,33 @@
+name: Actions Recovery
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Completed safe workflow run to retry
+        required: true
+        type: string
+permissions:
+  actions: write
+  contents: read
+concurrency:
+  group: gptauto-actions-recovery-${{ inputs.source_run_id }}
+  cancel-in-progress: false
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Bounded safe retry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          name="$(jq -r '.name // ""' <<<"$json")"; status="$(jq -r '.status // ""' <<<"$json")"; attempt="$(jq -r '.run_attempt // 1' <<<"$json")"
+          low="${name,,}"
+          [[ "$low" == *release* || "$low" == *deploy* || "$low" == *publish* ]] && { echo "::error::Side-effect workflow cannot be replayed"; exit 1; }
+          [[ "$status" == completed ]] || { echo "::error::Source run is not completed"; exit 1; }
+          (( attempt < 2 )) || { echo "::error::Recovery budget exhausted"; exit 1; }
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/rerun-failed-jobs" >/dev/null
