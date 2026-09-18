@@ -13,14 +13,14 @@ class Orchestrator:
             branch=m.get("work_branch")
             if not branch:return Decision("blocked","work_branch is required")
             r=self.github.latest_run(branch=branch,event="pull_request",workflow=m.get("ci_workflow"),head_sha=m.get("work_head_sha"));c=self.github.classify_run(r)
-            return Decision(c if c!="missing" else "wait",f"PR CI run {r.run_id} is {c}")
+            return Decision("wait" if c in {"waiting","missing"} else c,f"PR CI run {r.run_id} is {c}")
         if g==Gate.MERGE:
             n=m.get("pr_number")
             if not n:return Decision("blocked","pr_number is required")
             return Decision("passed",f"PR #{n} merged") if self.github.pull(int(n)).get("merged") else Decision("wait",f"PR #{n} not merged")
         if g==Gate.MAIN_CI:
             r=self.github.latest_run(branch=m.get("default_branch","main"),event="push",workflow=m.get("ci_workflow"),head_sha=m.get("merge_sha"));c=self.github.classify_run(r)
-            return Decision(c if c!="missing" else "wait",f"main CI run {r.run_id} is {c}")
+            return Decision("wait" if c in {"waiting","missing"} else c,f"main CI run {r.run_id} is {c}")
         if g==Gate.RELEASE:
             tag=m.get("release_tag")
             if not tag:return Decision("blocked","release_tag is required")
