@@ -1,68 +1,43 @@
-from __future__ import annotations
 from dataclasses import dataclass
-from .engine import Signal, advance
+from .engine import gate
 from .github import GitHubClient
-from .model import State, Task
-
+from .model import Gate,GateStatus,State,Task
 @dataclass(frozen=True)
-class Decision:
-    action: str
-    reason: str
-
+class Decision:action:str;reason:str
 class Orchestrator:
-    """Observe GitHub and advance only transitions that can be proven automatically."""
-    def __init__(self, client: GitHubClient):
-        self.github=client
-
-    def decide(self, task: Task) -> Decision:
-        m=task.metadata
-        if task.state==State.PR:
-            n=m.get("pr_number")
-            if not n: return Decision("wait","PR number has not been recorded")
-            return Decision("opened",f"PR #{n} recorded")
-
-        if task.state==State.WAIT_CI:
+    def __init__(self,client:GitHubClient):self.github=client
+    def decide_gate(self,task,step):
+        m=task.metadata;g=step.gate
+        if g==Gate.PR:return Decision("passed",f"PR #{m['pr_number']} recorded") if m.get("pr_number") else Decision("wait","PR not recorded")
+        if g==Gate.PR_CI:
             branch=m.get("work_branch")
-            if not branch: return Decision("blocked","work_branch is required")
-            run=self.github.latest_run(branch=branch)
-            c=self.github.classify_run(run)
-            if c=="passed": return Decision("passed",f"PR branch CI run {run.run_id} passed")
-            if c=="failed": return Decision("failed",f"PR branch CI run {run.run_id} failed")
-            return Decision("wait",f"PR CI is {run.status}")
-
-        if task.state==State.MERGE:
+            if not branch:return Decision("blocked","work_branch is required")
+            r=self.github.latest_run(branch=branch,event="pull_request",workflow=m.get("ci_workflow"),head_sha=m.get("work_head_sha"));c=self.github.classify_run(r)
+            return Decision(c if c!="missing" else "wait",f"PR CI run {r.run_id} is {c}")
+        if g==Gate.MERGE:
             n=m.get("pr_number")
-            if not n: return Decision("blocked","pr_number is required")
-            pr=self.github.pull(int(n))
-            if pr.get("merged"): return Decision("merged",f"PR #{n} is merged")
-            return Decision("wait",f"PR #{n} is not merged yet")
-
-        if task.state==State.MAIN_CI:
-            default=m.get("default_branch","main")
-            run=self.github.latest_run(branch=default,event="push")
-            c=self.github.classify_run(run)
-            if c=="passed": return Decision("passed",f"default-branch CI run {run.run_id} passed")
-            if c=="failed": return Decision("failed",f"default-branch CI run {run.run_id} failed")
-            return Decision("wait",f"default-branch CI is {run.status}")
-
-        if task.state==State.RELEASE:
-            if not task.release_required: return Decision("skipped","task does not require a release")
+            if not n:return Decision("blocked","pr_number is required")
+            return Decision("passed",f"PR #{n} merged") if self.github.pull(int(n)).get("merged") else Decision("wait",f"PR #{n} not merged")
+        if g==Gate.MAIN_CI:
+            r=self.github.latest_run(branch=m.get("default_branch","main"),event="push",workflow=m.get("ci_workflow"),head_sha=m.get("merge_sha"));c=self.github.classify_run(r)
+            return Decision(c if c!="missing" else "wait",f"main CI run {r.run_id} is {c}")
+        if g==Gate.RELEASE:
             tag=m.get("release_tag")
-            if not tag: return Decision("blocked","release_tag is required")
-            release=self.github.release_by_tag(tag)
-            if release and not release.get("draft"): return Decision("released",f"release {tag} exists")
-            return Decision("wait",f"release {tag} is not published yet")
-
-        if task.state==State.VERIFY:
-            checks=m.get("verification",{})
-            if checks.get("passed") is True: return Decision("verified",checks.get("reason","acceptance verification passed"))
-            if checks.get("passed") is False: return Decision("failed",checks.get("reason","acceptance verification failed"))
-            return Decision("wait","final verification evidence has not been recorded")
-
-        return Decision("wait",f"{task.state.value} requires a worker action")
-
-    def reconcile_once(self, task: Task) -> Decision:
-        d=self.decide(task)
-        if d.action=="wait": return d
-        advance(task,Signal(d.action,d.reason))
+            if not tag:return Decision("blocked","release_tag is required")
+            rel=self.github.release_by_tag(tag);return Decision("passed",f"release {tag} exists") if rel and not rel.get("draft") else Decision("wait",f"release {tag} missing")
+        if g==Gate.RUNTIME_VERIFY:
+            v=m.get("verification",{})
+            if v.get("passed") is True:return Decision("passed",v.get("reason","final verification passed"))
+            if v.get("passed") is False:return Decision("failed",v.get("reason","final verification failed"))
+            return Decision("wait","final verification evidence not recorded")
+        return Decision("worker",f"{g.value} requires host/reasoning action")
+    def reconcile_once(self,task):
+        if task.state!=State.EXECUTE:return Decision("wait",f"{task.state.value} is not an execution state")
+        step=next((x for x in task.plan if x.required and x.status not in {GateStatus.PASSED,GateStatus.SKIPPED}),None)
+        if not step:return Decision("ready","all required gates satisfied")
+        d=self.decide_gate(task,step)
+        if d.action=="passed":gate(task,step.gate,GateStatus.PASSED,d.reason)
+        elif d.action=="failed":gate(task,step.gate,GateStatus.FAILED,d.reason)
+        elif d.action=="blocked":task.state=State.BLOCKED;task.record(d.reason)
+        elif d.action=="wait":step.status=GateStatus.WAITING
         return d
