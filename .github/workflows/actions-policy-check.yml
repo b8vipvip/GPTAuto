@@ -1,0 +1,33 @@
+name: Actions Policy Check
+on:
+  pull_request:
+    paths: ['.github/workflows/**']
+  push:
+    branches: [main]
+    paths: ['.github/workflows/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: actions-policy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate workflow governance
+        shell: python
+        run: |
+          from pathlib import Path
+          errors=[]
+          for p in Path(".github/workflows").glob("*.yml"):
+              t=p.read_text(encoding="utf-8")
+              for required in ("workflow_dispatch:", "permissions:", "concurrency:", "timeout-minutes:"):
+                  if required not in t: errors.append(f"{p}: missing {required}")
+              low=p.name.lower()
+              if any(x in low for x in ("release","deploy","publish")) and "cancel-in-progress: false" not in t:
+                  errors.append(f"{p}: side-effect workflow must use cancel-in-progress: false")
+          if errors: raise SystemExit("\n".join(errors))
+          print("GPTAuto Actions policy OK")
