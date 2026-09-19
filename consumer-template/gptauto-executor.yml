@@ -89,7 +89,7 @@ jobs:
             existing="$(gh api "repos/$REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[].body' 2>/dev/null || true)"
             if ! grep -Fq "$marker" <<<"$existing"; then
               gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" --body "$marker
-          GPTAuto repair request: Actions failed for task `$TASK_ID` (run `$FAILED_RUN_ID`). The engineering agent should inspect the failed job logs, repair the current PR branch, push a new commit, and keep the same TASK_ID."
+          GPTAuto repair request: Actions failed for task $TASK_ID (run $FAILED_RUN_ID). The engineering agent should inspect the failed job logs, repair the current PR branch, push a new commit, and keep the same TASK_ID."
             fi
           fi
       - name: Executor summary
@@ -100,8 +100,8 @@ jobs:
         run: |
           {
             echo "## GPTAuto Executor"
-            echo "- Task: `$TASK_ID`"
-            echo "- Decision: `$ACTION`"
+            echo "- Task: $TASK_ID"
+            echo "- Decision: $ACTION"
             echo "- Safe merge is executed only after all current head workflows are completed successfully/neutral/skipped."
             echo "- Failures become idempotent repair requests tied to the same TASK_ID and failed run."
           } >> "$GITHUB_STEP_SUMMARY"

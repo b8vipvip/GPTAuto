@@ -29,6 +29,8 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("cancel-in-progress: true", text)
         self.assertIn("PR head moved; refusing stale merge", text)
+        self.assertNotIn("`$TASK_ID`", text)
+        self.assertNotIn("`$ACTION`", text)
         self.assertNotIn("\\\\${{", text)
 
     def test_observer_hydrates_previous_artifact_for_cumulative_ledger(self):
