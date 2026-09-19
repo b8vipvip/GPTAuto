@@ -15,7 +15,7 @@ GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与
 
     GOAL → PLAN / DoD → EXECUTE selected gates → VERIFY DoD → DONE
 
-可选 Gate 包括：\`INSPECT\`、\`IMPLEMENT\`、\`COMMIT\`、\`PR\`、\`PR_CI\`、\`MERGE\`、\`MAIN_CI\`、\`RELEASE\`、\`DEPLOY\`、\`RUNTIME_VERIFY\`。
+可选 Gate 包括：`INSPECT`、`IMPLEMENT`、`COMMIT`、`PR`、`PR_CI`、`MERGE`、`MAIN_CI`、`RELEASE`、`DEPLOY`、`RUNTIME_VERIFY`。
 
 例如：
 - “修改 README 并提交”不强制 Merge/Release。
@@ -23,7 +23,7 @@ GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与
 - “把代码合并到 main”要求 Merge，但仓库 Observer 仍会等待 post-merge CI 作为完成证据。
 - “修复并发布 v1.2.3 正式版”选择 PR、CI、Merge、main CI、Release 等必要 Gate。
 
-\`queued/running\` 仍然只是 WAITING；但只有当 CI 本身属于当前任务的动态计划时，它才会阻止 DONE。所有 DoD 条目必须有通过状态和证据，才能进入 DONE。
+`queued/running` 仍然只是 WAITING；但只有当 CI 本身属于当前任务的动态计划时，它才会阻止 DONE。所有 DoD 条目必须有通过状态和证据，才能进入 DONE。
 
 ### 快速开始
 
@@ -31,11 +31,11 @@ GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与
     python -m gptauto.cli init --goal "把代码合并到 main" --repo owner/repo --out task.json
     python -m gptauto.cli status task.json
 
-可以使用多个 \`--gate\` 和 \`--done\` 显式覆盖自动规划，供 GPTWork 等宿主的推理层传入更准确的计划。
+可以使用多个 `--gate` 和 `--done` 显式覆盖自动规划，供 GPTWork 等宿主的推理层传入更准确的计划。
 
-v0.6.1 同时支持 native host TASK_ID 与 repository observer 自动捕获；消费仓库可安装 \`consumer-template/gptauto-observer.yml\` 与 \`consumer-template/gptauto-sync.yml\`。Observer 会将 PR/main CI/Release 重新关联到同一个任务；Consumer Sync 支持原生 \`github.token\`，也支持在仓库禁止 Actions 创建 PR 时使用最小权限 \`GPTAUTO_SYNC_TOKEN\`。
+v0.6.1 同时支持 native host TASK_ID 与 repository observer 自动捕获；消费仓库可安装 `consumer-template/gptauto-observer.yml` 与 `consumer-template/gptauto-sync.yml`。Observer 会将 PR/main CI/Release 重新关联到同一个任务；Consumer Sync 支持原生 `github.token`，也支持在仓库禁止 Actions 创建 PR 时使用最小权限 `GPTAUTO_SYNC_TOKEN`。
 
-默认审计日志生成在 \`.gptauto/logs/<TASK_ID>/\`，包含 \`task.log\`、\`state.json\`、\`events.jsonl\`、\`summary.md\`；宿主工作流可使用内置 upload action 自动归档为 \`gptauto-<TASK_ID>\` Artifact。详见 \`docs/OBSERVABILITY.md\`、\`docs/PROTOCOL.md\` 与 \`docs/INTEGRATION.md\`。
+默认审计日志生成在 `.gptauto/logs/<TASK_ID>/`，包含 `task.log`、`state.json`、`events.jsonl`、`summary.md`；宿主工作流可使用内置 upload action 自动归档为 `gptauto-<TASK_ID>` Artifact。详见 `docs/OBSERVABILITY.md`、`docs/PROTOCOL.md` 与 `docs/INTEGRATION.md`。
 
 <a id="english"></a>
 ## English
@@ -46,6 +46,6 @@ Core lifecycle:
 
     GOAL → PLAN / DoD → EXECUTE selected gates → VERIFY DoD → DONE
 
-Available gates include \`INSPECT\`, \`IMPLEMENT\`, \`COMMIT\`, \`PR\`, \`PR_CI\`, \`MERGE\`, \`MAIN_CI\`, \`RELEASE\`, \`DEPLOY\`, and \`RUNTIME_VERIFY\`.
+Available gates include `INSPECT`, `IMPLEMENT`, `COMMIT`, `PR`, `PR_CI`, `MERGE`, `MAIN_CI`, `RELEASE`, `DEPLOY`, and `RUNTIME_VERIFY`.
 
-Consumer Sync can use the native repository \`GITHUB_TOKEN\` where Actions is allowed to create PRs, or an optional least-privilege \`GPTAUTO_SYNC_TOKEN\` when that repository policy is disabled. Policy denial now leaves a prepared sync branch plus an actionable workflow summary instead of a misleading sync failure.
+Consumer Sync can use the native repository `GITHUB_TOKEN` where Actions is allowed to create PRs, or an optional least-privilege `GPTAUTO_SYNC_TOKEN` when that repository policy is disabled. Policy denial now leaves a prepared sync branch plus an actionable workflow summary instead of a misleading sync failure.
