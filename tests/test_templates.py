@@ -41,6 +41,7 @@ class ConsumerTemplateTests(unittest.TestCase):
     def test_sync_installs_executor_workflow(self):
         text = Path("consumer-template/gptauto-sync.yml").read_text(encoding="utf-8")
         self.assertIn("gptauto-executor.yml", text)
+        self.assertNotIn("gptauto-observer.yml\\\\n", text)
 
 
 if __name__ == "__main__":
