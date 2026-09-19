@@ -204,7 +204,7 @@ class ObserverTests(unittest.TestCase):
             self.assertEqual(len(events), len(state["history"]))
             self.assertTrue(any(e["kind"] == "time_budget" for e in state["history"]))
             self.assertEqual(json.loads(events[0])["kind"], "observation")
-            self.assertEqual(json.loads(events[1])["kind"], "observation")
+            self.assertEqual(sum(json.loads(e)["kind"] == "observation" for e in events), 2)
 
 
 if __name__ == "__main__":
