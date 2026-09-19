@@ -42,6 +42,15 @@ class ExecutorTests(unittest.TestCase):
         action = next_action(self.task(state=State.VERIFY, merge=GateStatus.PASSED))
         self.assertEqual(action["action"], "verify")
 
+    def test_timeout_guard_becomes_recovery_when_no_gate_action_is_ready(self):
+        task = self.task(pr_ci=GateStatus.WAITING)
+        task.metadata["time_budget_level"] = "UI_TIMEOUT_GUARD"
+        task.metadata["time_budget_action"] = "detach"
+        task.metadata["chat_session_elapsed_minutes"] = 48.2
+        action = next_action(task)
+        self.assertEqual(action["action"], "timeout_recovery")
+        self.assertTrue(action["detach"])
+
     def test_done_is_terminal(self):
         action = next_action(self.task(state=State.DONE, merge=GateStatus.PASSED))
         self.assertEqual(action["action"], "done")

@@ -200,10 +200,11 @@ class ObserverTests(unittest.TestCase):
             self.assertEqual(first["task_id"], second["task_id"])
             state = json.loads(Path(second["paths"]["state"]).read_text())
             events = Path(second["paths"]["events"]).read_text().strip().splitlines()
-            self.assertEqual(len(state["history"]), 2)
-            self.assertEqual(len(events), 2)
+            self.assertGreaterEqual(len(state["history"]), 3)
+            self.assertEqual(len(events), len(state["history"]))
+            self.assertTrue(any(e["kind"] == "time_budget" for e in state["history"]))
             self.assertEqual(json.loads(events[0])["kind"], "observation")
-            self.assertEqual(json.loads(events[1])["kind"], "observation")
+            self.assertEqual(sum(json.loads(e)["kind"] == "observation" for e in events), 2)
 
 
 if __name__ == "__main__":
