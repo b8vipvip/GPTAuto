@@ -15,6 +15,9 @@ class ObserverTests(unittest.TestCase):
     def test_versioned_pr_implies_release_completion_gate(self):
         self.assertTrue(release_expected("v0.5.81: fix model verification"))
         self.assertTrue(release_expected("修复并发布正式版"))
+        self.assertTrue(release_expected("chore: release v1.2.3"))
+        self.assertFalse(release_expected("chore: sync GPTAuto v0.6.1"))
+        self.assertFalse(release_expected("docs: document v1.2.3 migration"))
         self.assertFalse(release_expected("docs: clarify setup"))
 
     def test_capture_creates_diagnostics_and_marks_provenance(self):
@@ -132,6 +135,53 @@ class ObserverTests(unittest.TestCase):
             self.assertEqual(main_ci["state"], "VERIFY")
             self.assertEqual(release["state"], "DONE")
             self.assertEqual(release["completion_gate"], "release")
+
+
+    def test_release_task_finishes_when_release_precedes_main_ci(self):
+        with tempfile.TemporaryDirectory() as d:
+            release_first = capture(
+                "o/r",
+                "workflow_run",
+                "main",
+                "main",
+                "def",
+                "12",
+                "v1.2.3: Fix",
+                "closed",
+                "true",
+                "def",
+                "81",
+                "dev",
+                d,
+                workflow_name="Release",
+                workflow_conclusion="success",
+                release_conclusion="success",
+                release_run_id="81",
+            )
+            ci_later = capture(
+                "o/r",
+                "workflow_run",
+                "main",
+                "main",
+                "def",
+                "12",
+                "v1.2.3: Fix",
+                "closed",
+                "true",
+                "def",
+                "82",
+                "dev",
+                d,
+                workflow_name="CI",
+                workflow_conclusion="success",
+                main_ci_conclusion="success",
+                main_ci_run_id="82",
+                release_conclusion="success",
+                release_run_id="81",
+            )
+            self.assertEqual(release_first["state"], "VERIFY")
+            self.assertEqual(ci_later["state"], "DONE")
+            self.assertEqual(release_first["task_id"], ci_later["task_id"])
 
 
 if __name__ == "__main__":
