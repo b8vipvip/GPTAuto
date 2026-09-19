@@ -25,7 +25,7 @@ class ConsumerTemplateTests(unittest.TestCase):
         text = Path("consumer-template/gptauto-executor.yml").read_text(encoding="utf-8")
         self.assertIn("Execute safe merge gate", text)
         self.assertIn("Emit repair request", text)
-        self.assertIn("gptauto.executor", text)
+        self.assertIn("gptauto.executor", text)\n        self.assertIn("workflow_dispatch:", text)\n        self.assertIn("cancel-in-progress: true", text)
         self.assertIn("PR head moved; refusing stale merge", text)
         self.assertNotIn("\\\\${{", text)
 
