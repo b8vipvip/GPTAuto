@@ -27,14 +27,15 @@ jobs:
           cp "$tmp"/GPTAuto/gptauto/*.py .github/gptauto/
           cp "$tmp"/GPTAuto/.github/actions/upload-gptauto-log/action.yml .github/actions/upload-gptauto-log/action.yml
           cp "$tmp"/GPTAuto/consumer-template/gptauto-sync.yml .github/workflows/gptauto-sync.yml
+          cp "$tmp"/GPTAuto/consumer-template/gptauto-observer.yml .github/workflows/gptauto-observer.yml
           ver="$(grep '^version = ' "$tmp/GPTAuto/pyproject.toml" | head -1 | cut -d'"' -f2)"
           printf '%s\n' "$ver" > .github/gptauto/VERSION
-          if git diff --quiet -- .github/gptauto .github/actions/upload-gptauto-log .github/workflows/gptauto-sync.yml; then exit 0; fi
+          if git diff --quiet -- .github/gptauto .github/actions/upload-gptauto-log .github/workflows/gptauto-sync.yml .github/workflows/gptauto-observer.yml; then exit 0; fi
           branch="chore/gptauto-sync-v$ver"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git checkout -B "$branch"
-          git add .github/gptauto .github/actions/upload-gptauto-log .github/workflows/gptauto-sync.yml
+          git add .github/gptauto .github/actions/upload-gptauto-log .github/workflows/gptauto-sync.yml .github/workflows/gptauto-observer.yml
           git commit -m "chore: sync GPTAuto v$ver"
           git push --force-with-lease -u origin "$branch"
           pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
