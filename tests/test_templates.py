@@ -21,6 +21,22 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("PR creation blocked after branch sync", text)
         self.assertNotIn("\\${{", text)
 
+    def test_executor_has_merge_and_repair_actions(self):
+        text = Path("consumer-template/gptauto-executor.yml").read_text(encoding="utf-8")
+        self.assertIn("Execute safe merge gate", text)
+        self.assertIn("Emit repair request", text)
+        self.assertIn("gptauto.executor", text)
+        self.assertIn("PR head moved; refusing stale merge", text)
+        self.assertNotIn("\\\\${{", text)
+
+    def test_observer_hydrates_previous_artifact_for_cumulative_ledger(self):
+        text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
+        self.assertIn("previous_artifact_id", text)
+        self.assertIn("actions/artifacts?name=gptauto-$TASK_ID", text)
+
+    def test_sync_installs_executor_workflow(self):
+        text = Path("consumer-template/gptauto-sync.yml").read_text(encoding="utf-8")
+        self.assertIn("gptauto-executor.yml", text)
 
 if __name__ == "__main__":
     unittest.main()

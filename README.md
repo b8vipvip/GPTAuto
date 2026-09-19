@@ -5,7 +5,7 @@
 <a id="中文"></a>
 ## 中文（默认）
 
-GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与参考实现。v0.6.3 在 v0.6 的仓库侧 Observer 基础上补齐了跨事件任务关联与完成语义：PR、合并后的 main push、main CI、Release 会先反查并绑定到同一个 PR TASK_ID；PR merged 不再直接等于 DONE。版本型开发标题（如 `v0.5.81: ...`）或标题中的“发布 / 正式版 / release / publish”语义会恢复 Release 型 DoD；`chore:` / `docs:` / `test:` / `ci:` / `build:` / `deps:` / `refactor:` 等维护标题优先保持非发布语义，即使正文为了说明验证范围而提到 Release。Observer 会回查历史成功的 main CI 与 Release run，因此二者谁先完成都能最终进入 DONE。
+GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与参考实现。v0.6.3 在 v0.6 的仓库侧 Observer 基础上补齐了跨事件任务关联与完成语义：PR、合并后的 main push、main CI、Release 会先反查并绑定到同一个 PR TASK_ID；PR merged 不再直接等于 DONE。版本型开发标题（如 `v0.5.81: ...`）或标题中的“发布 / 正式版 / release / publish”语义会恢复 Release 型 DoD；`chore:` / `docs:` / `test:` / `ci:` / `build:` / `deps:` / `refactor:` 等维护标题优先保持非发布语义，即使正文为了说明验证范围而提到 Release。Observer 会回查历史成功的 main CI 与 Release run，因此二者谁先完成都能最终进入 DONE。v0.7.0 新增 Executor：PR CI 全绿且 Merge gate 等待时可执行安全 squash merge；Actions 失败会生成绑定同一 TASK_ID/run 的 repair request；Observer 每轮会恢复上一份 artifact，使 events.jsonl 成为跨 run 累积事件账本。
 
 ### 核心原则
 
@@ -33,7 +33,7 @@ GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与
 
 可以使用多个 `--gate` 和 `--done` 显式覆盖自动规划，供 GPTWork 等宿主的推理层传入更准确的计划。
 
-v0.6.3 同时支持 native host TASK_ID 与 repository observer 自动捕获；消费仓库可安装 `consumer-template/gptauto-observer.yml` 与 `consumer-template/gptauto-sync.yml`。Observer 会将 PR/main CI/Release 重新关联到同一个任务；Consumer Sync 支持原生 `github.token`，也支持在仓库禁止 Actions 创建 PR 时使用最小权限 `GPTAUTO_SYNC_TOKEN`。
+v0.6.3 同时支持 native host TASK_ID 与 repository observer 自动捕获；消费仓库可安装 `consumer-template/gptauto-observer.yml` 与 `consumer-template/gptauto-sync.yml`。Observer 会将 PR/main CI/Release 重新关联到同一个任务；Consumer Sync 会同时安装 Observer 与 Executor，支持原生 `github.token`，也支持在仓库禁止 Actions 创建 PR 时使用最小权限 `GPTAUTO_SYNC_TOKEN`。
 
 默认审计日志生成在 `.gptauto/logs/<TASK_ID>/`，包含 `task.log`、`state.json`、`events.jsonl`、`summary.md`；宿主工作流可使用内置 upload action 自动归档为 `gptauto-<TASK_ID>` Artifact。详见 `docs/OBSERVABILITY.md`、`docs/PROTOCOL.md` 与 `docs/INTEGRATION.md`。
 
