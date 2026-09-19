@@ -127,7 +127,7 @@ jobs:
           cp /tmp/gptauto-action.json ".gptauto/checkpoints/$TASK_ID.json"
           {
             echo "## GPTAuto timeout recovery"
-            echo "- Task: `$TASK_ID`"
+            echo "- Task: $TASK_ID"
             echo "- The current foreground ChatGPT session is no longer required for task continuity."
             echo "- State is checkpointed in the Observer artifact; subsequent GitHub events reattach to the same TASK_ID."
           } >> "$GITHUB_STEP_SUMMARY"
