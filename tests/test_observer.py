@@ -185,5 +185,26 @@ class ObserverTests(unittest.TestCase):
             self.assertEqual(release_first["task_id"], ci_later["task_id"])
 
 
+    def test_capture_accumulates_history_from_previous_state(self):
+        with tempfile.TemporaryDirectory() as d:
+            first = capture(
+                "o/r", "pull_request", "main", "fix/x", "abc", "12",
+                "Fix", "open", "false", "", "90", "dev", d,
+            )
+            second = capture(
+                "o/r", "workflow_run", "main", "fix/x", "abc", "12",
+                "Fix", "open", "false", "", "91", "dev", d,
+                workflow_name="CI", workflow_conclusion="success",
+                pr_ci_conclusion="success", pr_ci_run_id="91",
+            )
+            self.assertEqual(first["task_id"], second["task_id"])
+            state = json.loads(Path(second["paths"]["state"]).read_text())
+            events = Path(second["paths"]["events"]).read_text().strip().splitlines()
+            self.assertEqual(len(state["history"]), 2)
+            self.assertEqual(len(events), 2)
+            self.assertEqual(json.loads(events[0])["kind"], "observation")
+            self.assertEqual(json.loads(events[1])["kind"], "observation")
+
+
 if __name__ == "__main__":
     unittest.main()
