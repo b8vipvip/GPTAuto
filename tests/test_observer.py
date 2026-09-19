@@ -17,6 +17,7 @@ class ObserverTests(unittest.TestCase):
         self.assertTrue(release_expected("修复并发布正式版"))
         self.assertTrue(release_expected("chore: release v1.2.3"))
         self.assertFalse(release_expected("chore: sync GPTAuto v0.6.1"))
+        self.assertFalse(release_expected("chore: sync GPTAuto v0.6.2", "Validate without requiring Release."))
         self.assertFalse(release_expected("docs: document v1.2.3 migration"))
         self.assertFalse(release_expected("docs: clarify setup"))
 
