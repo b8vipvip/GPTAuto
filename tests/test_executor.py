@@ -23,6 +23,7 @@ class ExecutorTests(unittest.TestCase):
                 "workflow_name": "CI",
                 "workflow_conclusion": conclusion,
                 "completion_gate": "release",
+                "release_required": True,
             },
         )
 
@@ -30,6 +31,7 @@ class ExecutorTests(unittest.TestCase):
         action = next_action(self.task())
         self.assertEqual(action["action"], "merge")
         self.assertEqual(action["pr_number"], "7")
+        self.assertTrue(action["release_required"])
 
     def test_failure_becomes_repair_request(self):
         action = next_action(self.task(pr_ci=GateStatus.FAILED, conclusion="failure"))
