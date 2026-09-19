@@ -17,11 +17,11 @@ permissions:
   actions: read
   pull-requests: read
 concurrency:
-  group: gptauto-observer-\${{ github.event.pull_request.number || github.event.workflow_run.id || github.event.release.id || github.ref }}
+  group: gptauto-observer-${{ github.event.pull_request.number || github.event.workflow_run.id || github.event.release.id || github.ref }}
   cancel-in-progress: true
 jobs:
   observe:
-    if: \${{ github.event_name == 'workflow_run' || github.event_name == 'release' || github.actor != 'github-actions[bot]' || github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'workflow_run' || github.event_name == 'release' || github.actor != 'github-actions[bot]' || github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -34,24 +34,24 @@ jobs:
       - name: Capture repository-side GPTAuto task
         id: capture
         env:
-          GH_TOKEN: \${{ github.token }}
-          EVENT_NAME: \${{ github.event_name }}
-          REPOSITORY: \${{ github.repository }}
-          DEFAULT_BRANCH: \${{ github.event.repository.default_branch }}
-          REF_NAME: \${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
-          HEAD_SHA: \${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
-          PR_NUMBER: \${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || '' }}
-          PR_TITLE: \${{ github.event.pull_request.title || '' }}
-          PR_BODY: \${{ github.event.pull_request.body || '' }}
-          PR_STATE: \${{ github.event.pull_request.state || '' }}
-          PR_MERGED: \${{ github.event.pull_request.merged || false }}
-          MERGE_SHA: \${{ github.event.pull_request.merge_commit_sha || '' }}
-          RUN_ID: \${{ github.event.workflow_run.id || github.run_id }}
-          ACTOR: \${{ github.actor }}
-          WORKFLOW_NAME: \${{ github.event.workflow_run.name || '' }}
-          WORKFLOW_CONCLUSION: \${{ github.event.workflow_run.conclusion || '' }}
-          RELEASE_TAG: \${{ github.event.release.tag_name || '' }}
-          RELEASE_STATE: \${{ github.event.action || '' }}
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_NAME: ${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || '' }}
+          PR_TITLE: ${{ github.event.pull_request.title || '' }}
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+          PR_STATE: ${{ github.event.pull_request.state || '' }}
+          PR_MERGED: ${{ github.event.pull_request.merged || false }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha || '' }}
+          RUN_ID: ${{ github.event.workflow_run.id || github.run_id }}
+          ACTOR: ${{ github.actor }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name || '' }}
+          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
+          RELEASE_STATE: ${{ github.event.action || '' }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -107,11 +107,11 @@ jobs:
           echo "task-id=$task_id" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/upload-gptauto-log
         with:
-          task-id: \${{ steps.capture.outputs.task-id }}
+          task-id: ${{ steps.capture.outputs.task-id }}
           retention-days: '30'
       - name: Summary
         env:
-          TASK_ID: \${{ steps.capture.outputs.task-id }}
+          TASK_ID: ${{ steps.capture.outputs.task-id }}
         run: |
           {
             echo "## GPTAuto repository observation"
