@@ -7,23 +7,12 @@ from gptauto.model import Criterion, Gate, GateStatus, GateStep, State, Task
 class ExecutorTests(unittest.TestCase):
     def task(self, *, state=State.EXECUTE, pr_ci=GateStatus.PASSED, merge=GateStatus.WAITING, conclusion="success"):
         return Task(
-            "GA-test",
-            "v1.2.3: ship",
-            "o/r",
-            [Criterion("done")],
-            state=state,
-            plan=[
-                GateStep(Gate.PR_CI, status=pr_ci),
-                GateStep(Gate.MERGE, status=merge),
-            ],
+            "GA-test", "v1.2.3: ship", "o/r", [Criterion("done")], state=state,
+            plan=[GateStep(Gate.PR_CI, status=pr_ci), GateStep(Gate.MERGE, status=merge)],
             metadata={
-                "pr_number": "7",
-                "head_sha": "abc",
-                "run_id": "42",
-                "workflow_name": "CI",
-                "workflow_conclusion": conclusion,
-                "completion_gate": "release",
-                "release_required": True,
+                "pr_number": "7", "head_sha": "abc", "event_head_sha": "abc", "current_pr_head_sha": "abc",
+                "run_id": "42", "workflow_name": "CI", "workflow_conclusion": conclusion,
+                "completion_gate": "release", "release_required": True,
             },
         )
 
@@ -31,12 +20,25 @@ class ExecutorTests(unittest.TestCase):
         action = next_action(self.task())
         self.assertEqual(action["action"], "merge")
         self.assertEqual(action["pr_number"], "7")
-        self.assertTrue(action["release_required"])
+        self.assertTrue(action["completion_lease"]["active"])
+        self.assertFalse(action["completion_lease"]["may_finish_foreground"])
 
-    def test_failure_becomes_repair_request(self):
+    def test_failure_becomes_one_head_scoped_repair_cycle(self):
         action = next_action(self.task(pr_ci=GateStatus.FAILED, conclusion="failure"))
         self.assertEqual(action["action"], "repair_request")
-        self.assertEqual(action["run_id"], "42")
+        self.assertEqual(action["repair_key"], "GA-test:abc")
+
+    def test_superseded_failure_does_not_create_repair(self):
+        task = self.task(pr_ci=GateStatus.WAITING, conclusion="failure")
+        task.metadata["event_head_sha"] = "old"
+        task.metadata["current_pr_head_sha"] = "abc"
+        action = next_action(task)
+        self.assertEqual(action["action"], "superseded")
+
+    def test_cancelled_current_head_keeps_lease_without_repair(self):
+        action = next_action(self.task(pr_ci=GateStatus.WAITING, conclusion="cancelled"))
+        self.assertEqual(action["action"], "lease_wait")
+        self.assertTrue(action["completion_lease"]["active"])
 
     def test_verify_waits_for_post_merge_evidence(self):
         action = next_action(self.task(state=State.VERIFY, merge=GateStatus.PASSED))
@@ -51,9 +53,16 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(action["action"], "timeout_recovery")
         self.assertTrue(action["detach"])
 
-    def test_done_is_terminal(self):
+    def test_unfinished_task_never_returns_plain_wait(self):
+        action = next_action(self.task(pr_ci=GateStatus.WAITING))
+        self.assertEqual(action["action"], "lease_wait")
+        self.assertTrue(action["completion_lease"]["active"])
+
+    def test_done_releases_completion_lease(self):
         action = next_action(self.task(state=State.DONE, merge=GateStatus.PASSED))
         self.assertEqual(action["action"], "done")
+        self.assertFalse(action["completion_lease"]["active"])
+        self.assertTrue(action["completion_lease"]["may_finish_foreground"])
 
 
 if __name__ == "__main__":
