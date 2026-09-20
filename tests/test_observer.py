@@ -136,6 +136,11 @@ class ObserverTests(unittest.TestCase):
             self.assertEqual(main_ci["state"], "VERIFY")
             self.assertEqual(release["state"], "DONE")
             self.assertEqual(release["completion_gate"], "release")
+            receipt = json.loads(Path(release["paths"]["completion"]).read_text())
+            self.assertTrue(receipt["complete"])
+            self.assertEqual(receipt["completion_gate"], "release")
+            self.assertEqual(receipt["main_ci_run_id"], "80")
+            self.assertEqual(receipt["release_run_id"], "81")
 
 
     def test_release_task_finishes_when_release_precedes_main_ci(self):

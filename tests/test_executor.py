@@ -63,6 +63,8 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(action["action"], "done")
         self.assertFalse(action["completion_lease"]["active"])
         self.assertTrue(action["completion_lease"]["may_finish_foreground"])
+        self.assertEqual(action["completion_receipt"]["completion_gate"], "release")
+        self.assertTrue(action["completion_receipt"]["release_required"])
 
 
 if __name__ == "__main__":

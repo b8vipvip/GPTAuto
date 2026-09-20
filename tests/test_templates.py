@@ -12,6 +12,7 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("A merged PR is VERIFY, not DONE", text)
         self.assertIn('select(.name == "Release" and .conclusion == "success")', text)
         self.assertIn('--release-conclusion "$RELEASE_CONCLUSION"', text)
+        self.assertIn("DONE artifacts include completion.json", text)
         self.assertNotIn("\\\\${{", text)
 
     def test_sync_has_dedicated_token_and_policy_fallback(self):
