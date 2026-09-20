@@ -13,6 +13,9 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn('select(.name == "Release" and .conclusion == "success")', text)
         self.assertIn('--release-conclusion "$RELEASE_CONCLUSION"', text)
         self.assertIn("DONE artifacts include completion.json", text)
+        self.assertIn("github.event_name == 'workflow_dispatch'", text)
+        self.assertIn("RECONCILED_MAIN_CI_RUN_ID", text)
+        self.assertIn("RECONCILED_RELEASE_RUN_ID", text)
         self.assertNotIn("\\\\${{", text)
 
     def test_sync_has_dedicated_token_and_policy_fallback(self):
@@ -67,6 +70,8 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("head_sha=$MERGE_SHA", text)
         self.assertIn("gptauto-observer.yml", text)
         self.assertIn("RELEASE_REQUIRED: ${{ inputs.release_required }}", text)
+        self.assertIn("main_ci_run_id=", text)
+        self.assertIn("release_run_id=", text)
         self.assertIn("cancel-in-progress: true", text)
 
 
