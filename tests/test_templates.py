@@ -28,6 +28,7 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("Emit repair request", text)
         self.assertIn("gptauto.executor", text)
         self.assertIn("workflow_dispatch:", text)
+        self.assertIn("gptauto-reconcile.yml", text)
         self.assertIn("cancel-in-progress: true", text)
         self.assertIn("PR head moved; refusing stale merge", text)
         self.assertNotIn("`$TASK_ID`", text)
@@ -56,8 +57,19 @@ class ConsumerTemplateTests(unittest.TestCase):
     def test_sync_installs_executor_workflow(self):
         text = Path("consumer-template/gptauto-sync.yml").read_text(encoding="utf-8")
         self.assertIn("gptauto-executor.yml", text)
+        self.assertIn("gptauto-reconcile.yml", text)
         self.assertNotIn("gptauto-observer.yml\\\
         ", text)
+
+    def test_reconciler_waits_for_post_merge_gates_and_reattaches_observer(self):
+        text = Path("consumer-template/gptauto-reconcile.yml").read_text(encoding="utf-8")
+        self.assertIn("timeout-minutes: 35", text)
+        self.assertIn("head_sha=$MERGE_SHA", text)
+        self.assertIn("gptauto-observer.yml", text)
+        self.assertIn('release_required="
+    unittest.main()
+ + '{{ inputs.release_required }}"', text)
+        self.assertIn("cancel-in-progress: true", text)
 
 
 if __name__ == "__main__":
