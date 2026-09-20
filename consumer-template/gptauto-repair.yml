@@ -29,6 +29,8 @@ jobs:
   generate-fix:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      ai-enabled: ${{ steps.provider.outputs.enabled }}
     steps:
       - name: Resolve optional AI provider
         id: provider
@@ -145,7 +147,7 @@ jobs:
 
   apply-fix:
     needs: generate-fix
-    if: ${{ needs.generate-fix.result == 'success' && secrets.GPTAUTO_AI_API_KEY != '' }}
+    if: ${{ needs.generate-fix.result == 'success' && needs.generate-fix.outputs.ai-enabled == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
