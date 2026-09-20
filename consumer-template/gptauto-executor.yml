@@ -120,6 +120,35 @@ jobs:
           GPTAuto repair cycle is open for task $TASK_ID on current head $HEAD_SHA (latest failed run $FAILED_RUN_ID). Do not finish the engineering task until this repair cycle is resolved and the completion lease reaches DONE."
             fi
           fi
+      - name: Dispatch autonomous repair agent
+        if: ${{ steps.state.outputs.action == 'repair_request' }}
+        env:
+          GH_TOKEN: ${{ secrets.GPTAUTO_EXECUTOR_TOKEN || github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TASK_ID: ${{ steps.state.outputs.task-id }}
+          PR_NUMBER: ${{ steps.state.outputs.pr-number }}
+          HEAD_SHA: ${{ steps.state.outputs.head-sha }}
+          FAILED_RUN_ID: ${{ steps.state.outputs.run-id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$PR_NUMBER" && -n "$HEAD_SHA" && -n "$FAILED_RUN_ID" ]] || {
+            echo "::error::Repair dispatch is missing PR/head/run identity."
+            exit 1
+          }
+          # One repair workflow per TASK_ID + head. Reconciliation events may call
+          # Executor repeatedly, so inspect existing runs before dispatch.
+          existing="$(gh api "repos/$REPOSITORY/actions/workflows/gptauto-repair.yml/runs?event=workflow_dispatch&per_page=100" \
+            --jq --arg head "$HEAD_SHA" '[.workflow_runs[] | select(.head_sha == $head and (.status == "queued" or .status == "in_progress" or .conclusion == "success"))] | length' 2>/dev/null || echo 0)"
+          if [[ "$existing" != "0" ]]; then
+            echo "Repair agent already dispatched for $TASK_ID / $HEAD_SHA; keeping the same repair lease."
+            exit 0
+          fi
+          gh workflow run gptauto-repair.yml --repo "$REPOSITORY" \
+            --ref "$(gh api "repos/$REPOSITORY" --jq '.default_branch')" \
+            -f task_id="$TASK_ID" -f pr_number="$PR_NUMBER" \
+            -f head_sha="$HEAD_SHA" -f failed_run_id="$FAILED_RUN_ID"
+          echo "Dispatched autonomous repair agent for $TASK_ID / $HEAD_SHA."
       - name: Persist completion lease
         if: ${{ steps.state.outputs.lease-active == 'true' }}
         env:
