@@ -136,11 +136,9 @@ jobs:
             echo "::error::Repair dispatch is missing PR/head/run identity."
             exit 1
           }
-          # One repair workflow per TASK_ID + head. Reconciliation events may call
-          # Executor repeatedly, so inspect existing runs before dispatch.
-          existing="$(gh api "repos/$REPOSITORY/actions/workflows/gptauto-repair.yml/runs?event=workflow_dispatch&per_page=100" \
-            --jq --arg head "$HEAD_SHA" '[.workflow_runs[] | select(.head_sha == $head and (.status == "queued" or .status == "in_progress" or .conclusion == "success"))] | length' 2>/dev/null || echo 0)"
-          if [[ "$existing" != "0" ]]; then
+          marker="<!-- gptauto-repair-dispatched:$TASK_ID:$HEAD_SHA -->"
+          comments="$(gh api "repos/$REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[].body' 2>/dev/null || true)"
+          if grep -Fq "$marker" <<<"$comments"; then
             echo "Repair agent already dispatched for $TASK_ID / $HEAD_SHA; keeping the same repair lease."
             exit 0
           fi
@@ -148,6 +146,8 @@ jobs:
             --ref "$(gh api "repos/$REPOSITORY" --jq '.default_branch')" \
             -f task_id="$TASK_ID" -f pr_number="$PR_NUMBER" \
             -f head_sha="$HEAD_SHA" -f failed_run_id="$FAILED_RUN_ID"
+          gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" --body "$marker
+GPTAuto dispatched the autonomous repair agent for task $TASK_ID on head $HEAD_SHA. The Completion Lease remains active until the repaired head passes its gates."
           echo "Dispatched autonomous repair agent for $TASK_ID / $HEAD_SHA."
       - name: Persist completion lease
         if: ${{ steps.state.outputs.lease-active == 'true' }}
