@@ -66,9 +66,7 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 35", text)
         self.assertIn("head_sha=$MERGE_SHA", text)
         self.assertIn("gptauto-observer.yml", text)
-        self.assertIn('release_required="
-    unittest.main()
- + '{{ inputs.release_required }}"', text)
+        self.assertIn("RELEASE_REQUIRED: ${{ inputs.release_required }}", text)
         self.assertIn("cancel-in-progress: true", text)
 
 
