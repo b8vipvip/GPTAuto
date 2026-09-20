@@ -36,7 +36,11 @@ class ConsumerTemplateTests(unittest.TestCase):
     def test_repair_agent_is_credential_isolated_and_head_guarded(self):
         text = Path("consumer-template/gptauto-repair.yml").read_text(encoding="utf-8")
         self.assertIn("openai/codex-action@v1", text)
-        self.assertIn("GPTAUTO_AI_API_KEY", text)\n        self.assertIn("GPTAUTO_AI_RESPONSES_ENDPOINT", text)\n        self.assertIn("responses-api-endpoint:", text)\n        self.assertIn("autonomous AI repair is disabled", text)\n        self.assertNotIn("secrets.OPENAI_API_KEY", text)
+        self.assertIn("GPTAUTO_AI_API_KEY", text)
+        self.assertIn("GPTAUTO_AI_RESPONSES_ENDPOINT", text)
+        self.assertIn("responses-api-endpoint:", text)
+        self.assertIn("autonomous AI repair is disabled", text)
+        self.assertNotIn("secrets.OPENAI_API_KEY", text)
         self.assertIn("persist-credentials: false", text)
         self.assertIn("Verify repair lease still targets current head", text)
         self.assertIn("Revalidate PR head before applying agent patch", text)
@@ -51,7 +55,8 @@ class ConsumerTemplateTests(unittest.TestCase):
     def test_sync_installs_executor_workflow(self):
         text = Path("consumer-template/gptauto-sync.yml").read_text(encoding="utf-8")
         self.assertIn("gptauto-executor.yml", text)
-        self.assertNotIn("gptauto-observer.yml\\\\n", text)
+        self.assertNotIn("gptauto-observer.yml\\\
+        ", text)
 
 
 if __name__ == "__main__":
