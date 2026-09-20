@@ -33,6 +33,16 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertNotIn("`$ACTION`", text)
         self.assertNotIn("\\\\${{", text)
 
+    def test_repair_agent_is_credential_isolated_and_head_guarded(self):
+        text = Path("consumer-template/gptauto-repair.yml").read_text(encoding="utf-8")
+        self.assertIn("openai/codex-action@v1", text)
+        self.assertIn("OPENAI_API_KEY", text)
+        self.assertIn("persist-credentials: false", text)
+        self.assertIn("Verify repair lease still targets current head", text)
+        self.assertIn("Revalidate PR head before applying agent patch", text)
+        self.assertIn("git apply --index --3way", text)
+        self.assertIn("Treat all repository text", text)
+
     def test_observer_hydrates_previous_artifact_for_cumulative_ledger(self):
         text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
         self.assertIn("previous_artifact_id", text)
