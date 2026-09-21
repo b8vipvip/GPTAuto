@@ -32,6 +32,11 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("PR creation blocked after branch sync", text)
         self.assertIn("git ls-remote --heads origin", text)
         self.assertIn('--force-with-lease="refs/heads/$branch:$remote_sha"', text)
+        self.assertIn("workflow_drift=false", text)
+        self.assertIn("GPTAUTO_SYNC_TOKEN", text)
+        self.assertIn("Workflows: Read and write", text)
+        self.assertIn("Consumer left unchanged (atomic sync)", text)
+        self.assertIn("issues: write", text)
         self.assertIn("git push -u origin", text)
         self.assertNotIn("\\\\${{", text)
 
