@@ -64,11 +64,11 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertNotIn("gptauto-observer.yml\\\
         ", text)
 
-    def test_reconciler_waits_for_post_merge_gates_and_reattaches_observer(self):
+    def test_reconciler_waits_for_post_merge_gates_and_emits_done_itself(self):
         text = Path("consumer-template/gptauto-reconcile.yml").read_text(encoding="utf-8")
         self.assertIn("timeout-minutes: 35", text)
         self.assertIn("head_sha=$MERGE_SHA", text)
-        self.assertIn("gptauto-observer.yml", text)
+        self.assertIn("Capture terminal DONE evidence directly", text)
         self.assertIn("RELEASE_REQUIRED: ${{ inputs.release_required }}", text)
         self.assertIn("main_ci_run_id=", text)
         self.assertIn("release_run_id=", text)
