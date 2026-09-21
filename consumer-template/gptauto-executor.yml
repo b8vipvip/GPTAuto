@@ -56,6 +56,7 @@ jobs:
           echo "release-required=$(jq -r '.release_required // false' <<<"$action")" >> "$GITHUB_OUTPUT"
           echo "repair-key=$(jq -r '.repair_key // empty' <<<"$action")" >> "$GITHUB_OUTPUT"
           echo "lease-active=$(jq -r '.completion_lease.active // false' <<<"$action")" >> "$GITHUB_OUTPUT"
+          echo "foreground-status=$(jq -r '.completion_lease.foreground_completion_status // "blocked"' <<<"$action")" >> "$GITHUB_OUTPUT"
       - name: Execute safe merge gate
         if: ${{ steps.state.outputs.action == 'merge' }}
         env:
@@ -211,6 +212,29 @@ jobs:
           mkdir -p .gptauto/completion-leases
           cp /tmp/gptauto-action.json ".gptauto/completion-leases/$TASK_ID.json"
           echo "Completion lease remains active for $TASK_ID; current decision is $ACTION." >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish foreground completion guard
+        if: ${{ steps.state.outputs.lease-active == 'true' && steps.state.outputs.pr-number != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.state.outputs.pr-number }}
+          TASK_ID: ${{ steps.state.outputs.task-id }}
+          ACTION: ${{ steps.state.outputs.action }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          marker="<!-- gptauto-completion-lease:$TASK_ID -->"
+          body="$marker
+          GPTAuto Completion Lease is ACTIVE for task $TASK_ID (decision: $ACTION).
+
+          This engineering task is NOT complete. A PR, commit, successful partial check, repair request, merge, or release-in-progress is non-terminal evidence. Foreground agents must continue/recover and must not report completion until a terminal DONE receipt exists."
+          comments="$(gh api "repos/$REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" 2>/dev/null || echo '[]')"
+          comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.body | contains($marker))] | .[0].id // empty' <<<"$comments")"
+          if [[ -n "$comment_id" ]]; then
+            gh api --method PATCH "repos/$REPOSITORY/issues/comments/$comment_id" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$REPOSITORY/issues/$PR_NUMBER/comments" -f body="$body" >/dev/null
+          fi
       - name: Persist timeout recovery checkpoint
         if: ${{ steps.state.outputs.action == 'timeout_recovery' }}
         env:
