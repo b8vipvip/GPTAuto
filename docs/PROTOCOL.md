@@ -39,6 +39,8 @@ DoD 不再是字符串清单，而是带 `pending/passed/failed` 状态和 evide
 
 失败 Gate 消耗有界 repair budget。修复动作由宿主推理层决定，完成后重新验证当前计划所要求的 Gate；不应因为历史上存在 PR/CI/Release 阶段而强制重新走无关步骤。
 
+AI Repair 是可选增强能力，不是任务连续性的前提。若 `repair_request` 发生时未配置 AI Provider，Executor 必须发布机器可读/持久化的 `FOREGROUND_RECOVERY_REQUIRED` handoff，绑定原 TASK_ID、PR、当前 head 与失败 run。宿主/前台代理应恢复同一个 PR、读取失败证据并继续修复；Completion Lease 保持 ACTIVE，直到重新通过 Gate 并产生 terminal DONE。缺少可选 AI Provider 本身不得把可修复任务永久停放或误报完成。
+
 ---
 
 ## English
