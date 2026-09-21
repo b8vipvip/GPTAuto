@@ -29,4 +29,15 @@ class AuditTests(unittest.TestCase):
         for s in t.plan:gate(t,s.gate,GateStatus.PASSED,"ok")
         begin_verify(t)
         with self.assertRaises(Exception):criterion(t,0,CriterionStatus.PASSED,"")
+    def test_completion_receipt_records_terminal_provenance(self):
+        t=self.task()
+        t.metadata.update({"provenance":"reconciler","run_id":"12345"})
+        for s in t.plan:gate(t,s.gate,GateStatus.PASSED,"ok")
+        begin_verify(t)
+        for i in range(len(t.definition_of_done)):criterion(t,i,CriterionStatus.PASSED,"verified")
+        finish(t)
+        with tempfile.TemporaryDirectory() as d:
+            paths=write_audit(t,d);receipt=json.loads(Path(paths["completion"]).read_text(encoding="utf-8"))
+            self.assertEqual("reconciler",receipt["provenance"])
+            self.assertEqual("12345",receipt["terminal_evidence_run_id"])
 if __name__=="__main__":unittest.main()
