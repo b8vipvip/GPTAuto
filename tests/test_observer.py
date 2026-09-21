@@ -190,6 +190,64 @@ class ObserverTests(unittest.TestCase):
             self.assertEqual(release_first["task_id"], ci_later["task_id"])
 
 
+    def test_reconciler_pins_release_intent_and_provenance(self):
+        with tempfile.TemporaryDirectory() as d:
+            forced_release = capture(
+                "o/r",
+                "reconcile",
+                "main",
+                "main",
+                "def",
+                "12",
+                "Fix without version text",
+                "closed",
+                "true",
+                "def",
+                "90",
+                "github-actions[bot]",
+                d,
+                pr_ci_conclusion="success",
+                pr_ci_run_id="70",
+                main_ci_conclusion="success",
+                main_ci_run_id="80",
+                release_conclusion="success",
+                release_run_id="81",
+                release_required_override="true",
+                provenance="reconciler",
+            )
+            self.assertEqual(forced_release["state"], "DONE")
+            self.assertTrue(forced_release["release_required"])
+            self.assertEqual(forced_release["completion_gate"], "release")
+            self.assertEqual(forced_release["provenance"], "reconciler")
+            receipt = json.loads(Path(forced_release["paths"]["completion"]).read_text())
+            self.assertEqual(receipt["provenance"], "reconciler")
+            self.assertEqual(receipt["terminal_evidence_run_id"], "90")
+            self.assertEqual(receipt["release_run_id"], "81")
+
+            forced_no_release = capture(
+                "o/r",
+                "reconcile",
+                "main",
+                "main",
+                "def",
+                "13",
+                "v9.9.9: title changed after merge",
+                "closed",
+                "true",
+                "def",
+                "91",
+                "github-actions[bot]",
+                d,
+                main_ci_conclusion="success",
+                main_ci_run_id="82",
+                release_required_override="false",
+                provenance="reconciler",
+            )
+            self.assertEqual(forced_no_release["state"], "DONE")
+            self.assertFalse(forced_no_release["release_required"])
+            self.assertEqual(forced_no_release["completion_gate"], "main_ci")
+
+
     def test_capture_accumulates_history_from_previous_state(self):
         with tempfile.TemporaryDirectory() as d:
             first = capture(
