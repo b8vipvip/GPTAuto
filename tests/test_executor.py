@@ -40,7 +40,18 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(action["action"], "lease_wait")
         self.assertTrue(action["completion_lease"]["active"])
 
-    def test_verify_waits_for_post_merge_evidence(self):
+    def test_merged_verify_adopts_reconciler_even_when_executor_did_not_merge(self):
+        task = self.task(state=State.VERIFY, merge=GateStatus.PASSED)
+        task.metadata["merge_sha"] = "merged123"
+        action = next_action(task)
+        self.assertEqual(action["action"], "reconcile_adopt")
+        self.assertEqual(action["merge_sha"], "merged123")
+        self.assertEqual(action["pr_number"], "7")
+        self.assertTrue(action["release_required"])
+        self.assertTrue(action["completion_lease"]["active"])
+        self.assertFalse(action["completion_lease"]["may_finish_foreground"])
+
+    def test_verify_without_merge_identity_keeps_waiting(self):
         action = next_action(self.task(state=State.VERIFY, merge=GateStatus.PASSED))
         self.assertEqual(action["action"], "verify")
 
