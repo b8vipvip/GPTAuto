@@ -64,16 +64,17 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertNotIn("gptauto-observer.yml\\\
         ", text)
 
-    def test_reconciler_waits_for_post_merge_gates_and_reattaches_observer(self):
+    def test_reconciler_waits_for_post_merge_gates_and_emits_done_itself(self):
         text = Path("consumer-template/gptauto-reconcile.yml").read_text(encoding="utf-8")
         self.assertIn("timeout-minutes: 35", text)
         self.assertIn("head_sha=$MERGE_SHA", text)
-        self.assertIn("gptauto-observer.yml", text)
+        self.assertIn("Capture terminal DONE evidence directly", text)
         self.assertIn("RELEASE_REQUIRED: ${{ inputs.release_required }}", text)
-        self.assertIn("main_ci_run_id=", text)
-        self.assertIn("release_run_id=", text)
+        self.assertIn('--main-ci-conclusion "success"', text)
+        self.assertIn('--main-ci-run-id "$MAIN_CI_RUN_ID"', text)
+        self.assertIn('--release-run-id "$RELEASE_RUN_ID"', text)
+        self.assertIn('[[ "$captured_state" == "DONE" ]]', text)
+        self.assertIn("upload-gptauto-log", text)
+        self.assertIn("no follow-up Observer run is required", text)
+        self.assertNotIn("gh workflow run gptauto-observer.yml", text)
         self.assertIn("cancel-in-progress: true", text)
-
-
-if __name__ == "__main__":
-    unittest.main()
