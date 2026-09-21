@@ -107,6 +107,13 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("upload-gptauto-log", text)
         self.assertIn("no follow-up Observer run is required", text)
         self.assertIn("Publish terminal foreground receipt", text)
+        self.assertIn("issues: write", text)
+        self.assertIn("continue-on-error: true", text)
         self.assertIn("Foreground completion is now permitted", text)
         self.assertNotIn("gh workflow run gptauto-observer.yml", text)
         self.assertIn("cancel-in-progress: true", text)
+
+
+def test_reconcile_uploads_terminal_artifact_before_optional_pr_receipt():
+    text = Path("consumer-template/gptauto-reconcile.yml").read_text()
+    assert text.index("uses: ./.github/actions/upload-gptauto-log") < text.index("name: Publish terminal foreground receipt")
