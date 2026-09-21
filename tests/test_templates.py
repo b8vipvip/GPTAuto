@@ -14,6 +14,8 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn('--release-conclusion "$RELEASE_CONCLUSION"', text)
         self.assertIn("DONE artifacts include completion.json", text)
         self.assertIn("github.event_name == 'workflow_dispatch'", text)
+        self.assertIn("github.event.workflow_run.conclusion != 'cancelled'", text)
+        self.assertIn("Completion Lease active", text)
         self.assertIn("RECONCILED_MAIN_CI_RUN_ID", text)
         self.assertIn("RECONCILED_RELEASE_RUN_ID", text)
         self.assertNotIn("\\\\${{", text)
