@@ -25,6 +25,9 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("secrets.GPTAUTO_SYNC_TOKEN || github.token", text)
         self.assertIn("Allow GitHub Actions to create and approve pull requests", text)
         self.assertIn("PR creation blocked after branch sync", text)
+        self.assertIn("git ls-remote --heads origin", text)
+        self.assertIn('--force-with-lease="refs/heads/$branch:$remote_sha"', text)
+        self.assertIn("git push -u origin", text)
         self.assertNotIn("\\\\${{", text)
 
     def test_executor_has_merge_and_repair_actions(self):
