@@ -14,10 +14,10 @@ concurrency:
   cancel-in-progress: true
 jobs:
   execute:
-    # Observer records every lifecycle event, but Executor only needs to wake after
-    # CI/Release observations (or an explicit recovery dispatch). PR/push/release
-    # observations are ledger-only and otherwise create no-op Executor runners.
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.event == 'workflow_run' || github.event.workflow_run.event == 'workflow_dispatch')) }}
+    # Executor normally wakes after CI/Release observations. A merged pull_request
+    # observation is also authoritative: it must be allowed to adopt the Completion
+    # Lease when somebody other than Executor performed the merge.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.event == 'workflow_run' || github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.event == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
