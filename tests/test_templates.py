@@ -18,6 +18,8 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("github.event.workflow_run.conclusion != 'success'", text)
         self.assertIn("github.event.workflow_run.head_branch != github.event.repository.default_branch", text)
         self.assertIn("Failures still wake Observer", text)
+        self.assertIn("github.event_name == 'push'", text)
+        self.assertNotIn("|| github.actor != 'github-actions[bot]' ||", text)
         self.assertIn("Completion Lease active", text)
         self.assertIn("RECONCILED_MAIN_CI_RUN_ID", text)
         self.assertIn("RECONCILED_RELEASE_RUN_ID", text)
