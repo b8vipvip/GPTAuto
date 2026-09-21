@@ -66,3 +66,8 @@ While a Completion Lease is active, commits, PR creation, partial CI success, re
 ### Waiting and blocking
 
 Asynchronous states are WAITING only for gates selected by the plan. BLOCKED is reserved for missing permission/credentials, material product ambiguity, unauthorized destructive action, exhausted repair budget, or an unrecoverable external platform condition.
+
+
+### Consumer Sync workflow permission
+
+Consumer Sync is atomic. If a canonical release changes `.github/workflows/*`, the repository must provide `GPTAUTO_SYNC_TOKEN` with Contents write, Pull requests write, and Workflows write. The default GitHub Actions token may not update workflow files. Sync detects this before push, leaves the installed VERSION unchanged, and creates/updates one deduplicated repository issue instead of repeatedly failing with a remote rejection. Releases that do not change workflow files continue to use the normal repository token.
