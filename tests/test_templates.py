@@ -85,7 +85,7 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("actions/upload-artifact@v4", text)
         self.assertIn("EXIT_GUARD=DENY", text)
         self.assertIn("MUST re-read the current task guard", text)
-        self.assertIn("intentionally non-success", text)
+        self.assertIn("FOREGROUND_EXIT_DENIED", text)
         self.assertIn("must remain attached to the task", text)
         self.assertIn("merely waiting for GitHub Actions", text)
         self.assertIn("Reconcile is the single post-merge authority", text)
