@@ -22,7 +22,7 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(action["pr_number"], "7")
         self.assertTrue(action["completion_lease"]["active"])
         self.assertFalse(action["completion_lease"]["may_finish_foreground"])
-        self.assertEqual(action["completion_lease"]["foreground_completion_status"], "blocked")
+        self.assertEqual(action["completion_lease"]["foreground_completion_status"], "continue_required")
         self.assertIn("Do not report", action["completion_lease"]["foreground_instruction"])
 
     def test_failure_becomes_one_head_scoped_repair_cycle(self):
@@ -83,7 +83,7 @@ class ExecutorTests(unittest.TestCase):
 
 
     def test_active_lease_requires_foreground_poll_and_denies_exit(self):
-        task = make_task(state=State.EXECUTE)
+        task = self.task(state=State.EXECUTE)
         action = next_action(task)
         lease = action["completion_lease"]
         self.assertEqual(lease["foreground_disposition"], "CONTINUE_REQUIRED")
