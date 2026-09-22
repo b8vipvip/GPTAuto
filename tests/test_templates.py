@@ -134,6 +134,11 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("issues: write", text)
         self.assertIn("continue-on-error: true", text)
         self.assertIn("Foreground completion is now permitted", text)
+        self.assertIn("Publish post-merge recovery handoff", text)
+        self.assertIn("POST_MERGE_RECOVERY_REQUIRED", text)
+        self.assertIn("decision: reconcile_recovery", text)
+        self.assertIn("steps.release-proof.outcome", text)
+        self.assertIn("Completion Lease remains ACTIVE as reconcile_recovery", text)
         self.assertNotIn("gh workflow run gptauto-observer.yml", text)
         self.assertIn("cancel-in-progress: true", text)
 
