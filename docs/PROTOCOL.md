@@ -33,7 +33,7 @@ DoD 不再是字符串清单，而是带 `pending/passed/failed` 状态和 evide
 
 ### 6. 前台完成契约
 
-只要 Completion Lease 仍为 active，任何 commit、PR、部分 CI 成功、repair request、merge 或 release-in-progress 都只能作为进度证据，不能作为“任务完成”的依据。Executor 必须公开持久化的 ACTIVE completion guard；只有 Reconcile 产生 terminal DONE evidence 并释放该 Lease 后，宿主/前台代理才允许向用户报告工程任务完成。对话超时或前台会话结束不能覆盖此契约。
+只要 Completion Lease 仍为 active，任何 commit、PR、部分 CI 成功、repair request、merge 或 release-in-progress 都只能作为进度证据，不能作为“任务完成”的依据。Executor 必须公开持久化的 ACTIVE completion guard；只有 Reconcile 产生 terminal DONE evidence 并释放该 Lease 后，宿主/前台代理才允许向用户报告工程任务完成。对话超时或前台会话结束不能覆盖此契约。对于用户要求“修复并发布/推进到完成”的终态任务，宿主必须把 ACTIVE Completion Lease 视为“继续执行”而不只是“禁止宣布 DONE”：PR 创建、Actions 排队/运行、等待异步结果都不是允许结束前台工程回合的边界。宿主必须持续轮询/恢复，直到 terminal DONE，或进入确实需要用户操作的 BLOCKED。
 
 ### 7. 修复
 
@@ -63,7 +63,7 @@ Each DoD criterion has pending/passed/failed state plus evidence. DONE requires 
 
 ### Foreground completion contract
 
-While a Completion Lease is active, commits, PR creation, partial CI success, repair requests, merges, and releases in progress are progress evidence only. Executor publishes a durable ACTIVE guard. A host/foreground agent may report engineering completion only after Reconcile emits terminal DONE evidence and releases the lease. Chat/session termination never overrides this contract.
+While a Completion Lease is active, commits, PR creation, partial CI success, repair requests, merges, and releases in progress are progress evidence only. Executor publishes a durable ACTIVE guard. A host/foreground agent may report engineering completion only after Reconcile emits terminal DONE evidence and releases the lease. Chat/session termination never overrides this contract. For terminal engineering requests such as fix-and-release, an ACTIVE Completion Lease is a continuation obligation, not merely a prohibition on saying DONE: PR creation, queued/running Actions, and waiting for asynchronous results are not valid boundaries for ending the foreground engineering turn. The host must poll/recover until terminal DONE or a genuine user-action BLOCKED state.
 
 ### Waiting and blocking
 
