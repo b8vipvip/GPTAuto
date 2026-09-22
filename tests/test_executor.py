@@ -82,5 +82,14 @@ class ExecutorTests(unittest.TestCase):
         self.assertTrue(action["completion_receipt"]["release_required"])
 
 
+    def test_active_lease_requires_foreground_poll_and_denies_exit(self):
+        task = make_task(state=State.EXECUTE)
+        action = next_action(task)
+        lease = action["completion_lease"]
+        self.assertEqual(lease["foreground_disposition"], "CONTINUE_REQUIRED")
+        self.assertFalse(lease["allow_foreground_exit"])
+        self.assertTrue(lease["requires_foreground_poll"])
+
+
 if __name__ == "__main__":
     unittest.main()
