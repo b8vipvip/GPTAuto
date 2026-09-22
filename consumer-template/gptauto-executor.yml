@@ -106,19 +106,26 @@ jobs:
           # mechanism; with a dedicated token we first avoid duplicate push runs.
           sleep 2
           runs="$(gh api "repos/$REPOSITORY/actions/runs?head_sha=$merge_sha&per_page=100")"
-          ci_count="$(jq '[.workflow_runs[] | select(.name == "CI")] | length' <<<"$runs")"
-          if [[ "$ci_count" == "0" ]]; then
-            gh workflow run CI --repo "$REPOSITORY" --ref "$default_branch"
+          required_workflows=("CI")
+          gate_file=".github/gptauto/post-merge-workflows.txt"
+          if [[ -f "$gate_file" ]]; then
+            while IFS= read -r workflow; do
+              workflow="$(sed 's/^[[:space:]]*//;s/[[:space:]]*$//' <<<"$workflow")"
+              [[ -n "$workflow" && "$workflow" != "CI" && "$workflow" != \#* ]] && required_workflows+=("$workflow")
+            done < "$gate_file"
           fi
-          if [[ "${{ steps.state.outputs.release-required }}" == "true" ]]; then
-            release_count="$(jq '[.workflow_runs[] | select(.name == "Release")] | length' <<<"$runs")"
-            if [[ "$release_count" == "0" ]]; then
-              gh workflow run Release --repo "$REPOSITORY" --ref "$default_branch"
+          for workflow in "${required_workflows[@]}"; do
+            count="$(jq --arg name "$workflow" '[.workflow_runs[] | select(.name == $name)] | length' <<<"$runs")"
+            if [[ "$count" == "0" ]]; then
+              echo "Dispatching required post-merge workflow: $workflow"
+              gh workflow run "$workflow" --repo "$REPOSITORY" --ref "$default_branch"
             fi
-          fi
+          done
+          # Release is intentionally NOT dispatched here. Reconcile owns release
+          # dispatch after every repository-declared post-merge gate has succeeded,
+          # preventing an early green/no-op Release run from becoming terminal evidence.
           # workflow_dispatch runs started with GITHUB_TOKEN do not reliably create
-          # another workflow_run chain. A dedicated reconciler owns the long wait
-          # and explicitly re-dispatches Observer once post-merge gates are terminal.
+          # another workflow_run chain. A dedicated reconciler owns the long wait.
           gh workflow run gptauto-reconcile.yml --repo "$REPOSITORY" --ref "$default_branch" \
             -f task_id="$TASK_ID" -f pr_number="$PR_NUMBER" -f merge_sha="$merge_sha" \
             -f release_required="${{ steps.state.outputs.release-required }}"
