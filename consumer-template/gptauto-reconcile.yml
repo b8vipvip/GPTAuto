@@ -39,41 +39,95 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GPTAUTO_EXECUTOR_TOKEN || github.token }}
           REPOSITORY: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           TASK_ID: ${{ inputs.task_id }}
           MERGE_SHA: ${{ inputs.merge_sha }}
           RELEASE_REQUIRED: ${{ inputs.release_required }}
         shell: bash
         run: |
           set -Eeuo pipefail
+          required_workflows=("CI")
+          gate_file=".github/gptauto/post-merge-workflows.txt"
+          if [[ -f "$gate_file" ]]; then
+            while IFS= read -r workflow; do
+              workflow="$(sed 's/^[[:space:]]*//;s/[[:space:]]*$//' <<<"$workflow")"
+              [[ -n "$workflow" && "$workflow" != "CI" && "$workflow" != \#* ]] && required_workflows+=("$workflow")
+            done < "$gate_file"
+          fi
+          release_proof="workflow"
+          if [[ -f ".github/gptauto/release-proof" ]]; then
+            release_proof="$(tr -d '[:space:]' < .github/gptauto/release-proof)"
+          fi
+          release_dispatched=false
           deadline=$((SECONDS + 1800))
           while (( SECONDS < deadline )); do
             runs="$(gh api "repos/$REPOSITORY/actions/runs?head_sha=$MERGE_SHA&per_page=100")"
-            ci_status="$(jq -r '[.workflow_runs[] | select(.name == "CI")] | sort_by(.created_at) | reverse | .[0].status // "missing"' <<<"$runs")"
-            ci_conclusion="$(jq -r '[.workflow_runs[] | select(.name == "CI")] | sort_by(.created_at) | reverse | .[0].conclusion // ""' <<<"$runs")"
-            release_status="completed"
-            release_conclusion="success"
-            if [[ "$RELEASE_REQUIRED" == "true" ]]; then
-              release_status="$(jq -r '[.workflow_runs[] | select(.name == "Release")] | sort_by(.created_at) | reverse | .[0].status // "missing"' <<<"$runs")"
-              release_conclusion="$(jq -r '[.workflow_runs[] | select(.name == "Release")] | sort_by(.created_at) | reverse | .[0].conclusion // ""' <<<"$runs")"
-            fi
-            echo "task=$TASK_ID ci=$ci_status/$ci_conclusion release=$release_status/$release_conclusion"
-            if [[ "$ci_status" == "completed" && "$ci_conclusion" != "success" ]]; then
-              echo "::error::Post-merge CI finished with $ci_conclusion"
-              exit 1
-            fi
-            if [[ "$RELEASE_REQUIRED" == "true" && "$release_status" == "completed" && "$release_conclusion" != "success" ]]; then
-              echo "::error::Release finished with $release_conclusion"
-              exit 1
-            fi
-            if [[ "$ci_status" == "completed" && "$ci_conclusion" == "success" && "$release_status" == "completed" && "$release_conclusion" == "success" ]]; then
-              ci_run_id="$(jq -r '[.workflow_runs[] | select(.name == "CI" and .conclusion == "success")] | sort_by(.created_at) | reverse | .[0].id // empty' <<<"$runs")"
-              release_run_id=""
-              if [[ "$RELEASE_REQUIRED" == "true" ]]; then
-                release_run_id="$(jq -r '[.workflow_runs[] | select(.name == "Release" and .conclusion == "success")] | sort_by(.created_at) | reverse | .[0].id // empty' <<<"$runs")"
+            gates_ready=true
+            latest_gate_time=""
+            main_ci_run_id=""
+            for workflow in "${required_workflows[@]}"; do
+              row="$(jq -c --arg name "$workflow" '[.workflow_runs[] | select(.name == $name)] | sort_by(.created_at) | reverse | .[0] // {}' <<<"$runs")"
+              status="$(jq -r '.status // "missing"' <<<"$row")"
+              conclusion="$(jq -r '.conclusion // ""' <<<"$row")"
+              run_id="$(jq -r '.id // empty' <<<"$row")"
+              updated_at="$(jq -r '.updated_at // .created_at // ""' <<<"$row")"
+              echo "task=$TASK_ID gate=$workflow status=$status/$conclusion run=${run_id:-missing}"
+              if [[ "$status" == "missing" ]]; then
+                echo "Dispatching missing post-merge gate: $workflow"
+                gh workflow run "$workflow" --repo "$REPOSITORY" --ref "$DEFAULT_BRANCH"
+                gates_ready=false
+                continue
               fi
-              echo "main-ci-run-id=$ci_run_id" >> "$GITHUB_OUTPUT"
-              echo "release-run-id=$release_run_id" >> "$GITHUB_OUTPUT"
-              exit 0
+              if [[ "$status" == "completed" && "$conclusion" != "success" && "$conclusion" != "neutral" && "$conclusion" != "skipped" ]]; then
+                echo "::error::Post-merge gate '$workflow' finished with $conclusion"
+                exit 1
+              fi
+              if [[ "$status" != "completed" || ( "$conclusion" != "success" && "$conclusion" != "neutral" && "$conclusion" != "skipped" ) ]]; then
+                gates_ready=false
+              fi
+              if [[ "$workflow" == "CI" && "$conclusion" == "success" ]]; then
+                main_ci_run_id="$run_id"
+              fi
+              if [[ -n "$updated_at" && ( -z "$latest_gate_time" || "$updated_at" > "$latest_gate_time" ) ]]; then
+                latest_gate_time="$updated_at"
+              fi
+            done
+
+            if [[ "$gates_ready" == "true" ]]; then
+              if [[ "$RELEASE_REQUIRED" != "true" ]]; then
+                echo "main-ci-run-id=$main_ci_run_id" >> "$GITHUB_OUTPUT"
+                echo "release-run-id=" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              release_row="$(jq -c --arg after "$latest_gate_time" '[.workflow_runs[] | select(.name == "Release" and (.created_at // "") >= $after)] | sort_by(.created_at) | reverse | .[0] // {}' <<<"$runs")"
+              release_status="$(jq -r '.status // "missing"' <<<"$release_row")"
+              release_conclusion="$(jq -r '.conclusion // ""' <<<"$release_row")"
+              release_run_id="$(jq -r '.id // empty' <<<"$release_row")"
+              echo "task=$TASK_ID release=$release_status/$release_conclusion run=${release_run_id:-missing} after_gates=$latest_gate_time proof=$release_proof"
+
+              if [[ "$release_status" == "missing" ]]; then
+                if [[ "$release_dispatched" != "true" ]]; then
+                  echo "Dispatching Release only after all post-merge gates succeeded."
+                  gh workflow run Release --repo "$REPOSITORY" --ref "$DEFAULT_BRANCH"
+                  release_dispatched=true
+                fi
+              elif [[ "$release_status" == "completed" && "$release_conclusion" != "success" ]]; then
+                echo "::error::Release finished with $release_conclusion"
+                exit 1
+              elif [[ "$release_status" == "completed" && "$release_conclusion" == "success" ]]; then
+                if [[ "$release_proof" == "github-release" ]]; then
+                  proof_id="$(gh api "repos/$REPOSITORY/releases?per_page=100" --jq --arg sha "$MERGE_SHA" '[.[] | select(.draft == false and .target_commitish == $sha)] | .[0].id // empty' 2>/dev/null || true)"
+                  if [[ -z "$proof_id" ]]; then
+                    echo "::error::Release workflow succeeded without GitHub Release proof for $MERGE_SHA"
+                    exit 1
+                  fi
+                  echo "Verified GitHub Release proof id=$proof_id for $MERGE_SHA"
+                fi
+                echo "main-ci-run-id=$main_ci_run_id" >> "$GITHUB_OUTPUT"
+                echo "release-run-id=$release_run_id" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
             fi
             sleep 15
           done
