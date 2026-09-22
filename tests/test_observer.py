@@ -325,5 +325,23 @@ class ObserverTests(unittest.TestCase):
             self.assertEqual(sum(json.loads(e)["kind"] == "observation" for e in events), 2)
 
 
+    def test_pull_request_refresh_clears_prior_workflow_failure_metadata(self):
+        with tempfile.TemporaryDirectory() as d:
+            capture(
+                "o/r", "workflow_run", "main", "fix/x", "abc", "12",
+                "Fix", "open", "false", "", "100", "dev", d,
+                workflow_name="CI", workflow_conclusion="failure",
+            )
+            refreshed = capture(
+                "o/r", "pull_request", "main", "fix/x", "abc", "12",
+                "Fix", "open", "false", "", "101", "dev", d,
+            )
+            state = json.loads(Path(refreshed["paths"]["state"]).read_text())
+            self.assertEqual(state["metadata"]["run_id"], "101")
+            self.assertEqual(state["metadata"]["workflow_name"], "")
+            self.assertEqual(state["metadata"]["workflow_conclusion"], "")
+            self.assertEqual(state["metadata"]["event"], "pull_request")
+
+
 if __name__ == "__main__":
     unittest.main()
