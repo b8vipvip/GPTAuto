@@ -165,9 +165,6 @@ class ObserverTests(unittest.TestCase):
             self.assertEqual(receipt["release_tag"], "v1.2.3")
             self.assertEqual(receipt["main_ci_run_id"], "80")
             self.assertEqual(receipt["release_run_id"], "81")
-            self.assertTrue(receipt["release_published"])
-            self.assertEqual(receipt["release_id"], "9001")
-            self.assertEqual(receipt["release_tag"], "v1.2.3")
 
     def test_release_task_finishes_when_published_release_precedes_main_ci(self):
         with tempfile.TemporaryDirectory() as d:
@@ -278,6 +275,9 @@ class ObserverTests(unittest.TestCase):
             self.assertEqual(receipt["provenance"], "reconciler")
             self.assertEqual(receipt["terminal_evidence_run_id"], "90")
             self.assertEqual(receipt["release_run_id"], "81")
+            self.assertTrue(receipt["release_published"])
+            self.assertEqual(receipt["release_id"], "9001")
+            self.assertEqual(receipt["release_tag"], "v1.2.3")
 
             forced_no_release = capture(
                 "o/r",
