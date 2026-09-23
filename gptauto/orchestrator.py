@@ -70,6 +70,7 @@ def canonicalize_task(task:Task)->dict:
     task.metadata["completion_lease"]="DONE" if terminal else "ACTIVE"
     task.metadata["protocol"]="gptauto.task-state/v2"
     task.metadata["continuation_required"]=phase=="REPAIR_REQUIRED"
+    current_head=str(task.metadata.get("current_pr_head_sha") or task.metadata.get("head_sha") or "")
     task.metadata["continuation_key"]=f"{task.task_id}:{generation}:{current_head or 'no-head'}"
     if previous!=phase:
         task.record(f"canonical lifecycle transition {previous or '-'} -> {phase}",kind="lifecycle",evidence=f"generation={generation}")
