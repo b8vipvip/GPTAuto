@@ -100,3 +100,12 @@ v0.14.0 将“任务生命周期”和“ChatGPT execution 生命周期”彻底
 ## Task Protocol v2 / Persistent tasks and Continuation Hosts
 
 v0.14.0 separates task lifetime from ChatGPT execution lifetime. The sole terminal authority is `gptauto.task-state/v2`. Ending one foreground execution never closes a non-DONE task. REPAIR_REQUIRED emits a continuation_key bound to task_id, generation, and current head so a Continuation Host such as GPTWork can resume the same task and PR. Legacy Exit Guard/Completion Lease fields are compatibility views only and MUST NOT become a second decision authority.
+
+
+## 9. v0.14.1 explicit post-merge dispatch / 显式合并后验证
+
+Reconcile MUST NOT infer that merging with a GitHub Actions token will create a new push-triggered product CI run. It resolves the canonical validation workflow, verifies the target merge is still the default-branch HEAD, explicitly dispatches one workflow_dispatch run, persists/binds its run ID, and waits only for that run. Missing workflow_dispatch support, ambiguous workflow selection, or a moved default branch is immediate recovery evidence rather than a long registration poll.
+
+Reconcile 不再把“merge 后自然出现 push CI”作为协议前提。它必须显式 dispatch 唯一 canonical product validation，并把 run ID 绑定到当前 Task/merge generation；只允许该 run 的成功证据满足 post-merge gate。
+
+`workflow_run` cannot pre-filter every conclusion/event before GitHub creates a run. Job-level filters may therefore leave a small number of visible Skipped runs. Those runs are non-authoritative artifacts and MUST NOT feed the control plane or advance canonical Task State.
