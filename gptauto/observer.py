@@ -326,15 +326,14 @@ def capture(
             current = [e for e in t.history if (e.at, e.kind, e.reason, e.gate, e.status, e.evidence) not in seen]
             t.history = list(previous.history) + current
 
-    # Persist a session time-budget checkpoint with every observation. This makes
-    # ChatGPT/UI lifetime a recoverable concern instead of a task lifetime.
+    # Observer only produces evidence. Orchestrator is the sole authority that\n    # projects that evidence into phase/DONE/foreground-exit state.\n    from .orchestrator import canonicalize_task\n    authority = canonicalize_task(t)\n\n    # Persist a session time-budget checkpoint with every observation. This makes\n    # ChatGPT/UI lifetime a recoverable concern instead of a task lifetime.
     from .time_budget import apply as apply_time_budget
     time_budget = apply_time_budget(t)
 
     paths = write_audit(t, log_root)
     return {
         "task_id": tid,
-        "state": state.value,
+        "state": t.state.value,\n        "phase": authority["phase"],\n        "generation": authority["generation"],\n        "terminal_done": authority["terminal_done"],\n        "allow_foreground_exit": authority["allow_foreground_exit"],
         "provenance": evidence_provenance,
         "artifact_name": "gptauto-" + tid,
         "completion_gate": completion_gate,
