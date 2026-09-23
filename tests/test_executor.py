@@ -21,9 +21,9 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(action["action"], "merge")
         self.assertEqual(action["pr_number"], "7")
         self.assertTrue(action["completion_lease"]["active"])
-        self.assertFalse(action["completion_lease"]["may_finish_foreground"])
+        self.assertTrue(action["completion_lease"]["may_finish_foreground"])
         self.assertEqual(action["completion_lease"]["foreground_completion_status"], "continue_required")
-        self.assertIn("Do not report", action["completion_lease"]["foreground_instruction"])
+        self.assertIn("durable GPTAuto task remains alive", action["completion_lease"]["foreground_instruction"])
 
     def test_failure_becomes_one_head_scoped_repair_cycle(self):
         action = next_action(self.task(pr_ci=GateStatus.FAILED, conclusion="failure"))
@@ -51,7 +51,7 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(action["pr_number"], "7")
         self.assertTrue(action["release_required"])
         self.assertTrue(action["completion_lease"]["active"])
-        self.assertFalse(action["completion_lease"]["may_finish_foreground"])
+        self.assertTrue(action["completion_lease"]["may_finish_foreground"])
 
     def test_verify_without_merge_identity_keeps_waiting(self):
         action = next_action(self.task(state=State.VERIFY, merge=GateStatus.PASSED))
@@ -81,22 +81,30 @@ class ExecutorTests(unittest.TestCase):
         self.assertTrue(action["completion_lease"]["may_finish_foreground"])
         self.assertEqual(action["completion_lease"]["foreground_completion_status"], "terminal")
         self.assertIn("terminal DONE evidence", action["completion_lease"]["foreground_instruction"])
-        self.assertEqual(action["completion_lease"]["host_control"]["foreground_disposition"], "EXIT_ALLOWED")
+        self.assertEqual(action["completion_lease"]["host_control"]["next_host_action"], "TASK_CLOSED")
         self.assertTrue(action["completion_lease"]["host_control"]["terminal_done"])
         self.assertEqual(action["completion_receipt"]["completion_gate"], "release")
         self.assertTrue(action["completion_receipt"]["release_required"])
 
 
-    def test_active_lease_requires_foreground_poll_and_denies_exit(self):
+    def test_active_task_projects_continuation_without_exit_denial(self):
         task = self.task(state=State.EXECUTE)
         action = next_action(task)
         lease = action["completion_lease"]
-        self.assertEqual(lease["foreground_disposition"], "CONTINUE_REQUIRED")
-        self.assertFalse(lease["allow_foreground_exit"])
-        self.assertTrue(lease["requires_foreground_poll"])
-        self.assertEqual(lease["host_control"]["schema"], "gptauto.host-control/v1")
-        self.assertFalse(lease["host_control"]["allow_foreground_exit"])
-        self.assertEqual(lease["host_control"]["next_host_action"], "CONTINUE_CURRENT_TASK")
+        self.assertEqual(lease["foreground_disposition"], "TURN_MAY_END_TASK_REMAINS_ALIVE")
+        self.assertTrue(lease["allow_foreground_exit"])
+        self.assertFalse(lease["requires_foreground_poll"])
+        self.assertEqual(lease["host_control"]["schema"], "gptauto.host-control/v2")
+        self.assertTrue(lease["host_control"]["task_alive"])
+        self.assertEqual(lease["host_control"]["next_host_action"], "WAIT_FOR_TASK_STATE_CHANGE")
+
+    def test_failure_requests_continuation_of_same_task(self):
+        task = self.task(pr_ci=GateStatus.FAILED, conclusion="failure")
+        action = next_action(task)
+        host = action["completion_lease"]["host_control"]
+        self.assertTrue(host["continuation_required"])
+        self.assertEqual(host["next_host_action"], "RESUME_CHATGPT_SAME_TASK")
+        self.assertIn("GA-test:", host["continuation_key"])
 
 
 if __name__ == "__main__":
