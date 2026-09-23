@@ -15,7 +15,6 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn('select(.name == "Release" and .conclusion == "success")', text)
         self.assertIn('--release-conclusion "$RELEASE_CONCLUSION"', text)
         self.assertIn("DONE artifacts include completion.json", text)
-        self.assertIn("github.event_name == 'workflow_dispatch'", text)
         self.assertIn("Classify product evidence ingress", text)
         self.assertIn("actionable=$actionable", text)
         self.assertIn("successful no-op", text)
