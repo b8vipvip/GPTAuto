@@ -18,6 +18,12 @@ class CanonicalLifecycleTests(unittest.TestCase):
         t=self.task(main=GateStatus.PASSED,rel=GateStatus.PASSED);a=canonicalize_task(t);self.assertEqual(a["phase"],"DONE");self.assertEqual(t.state,State.DONE);self.assertTrue(a["allow_foreground_exit"])
     def test_proposed_done_without_evidence_is_revoked(self):
         t=self.task(main=GateStatus.PASSED);t.state=State.DONE;a=canonicalize_task(t);self.assertEqual(a["phase"],"RELEASE");self.assertEqual(t.state,State.VERIFY)
+    def test_current_head_workflow_failure_is_canonical_repair(self):
+        t=self.task(main=GateStatus.WAITING);t.metadata.update({"workflow_conclusion":"failure","event_head_sha":"abc","current_pr_head_sha":"abc"})
+        a=canonicalize_task(t);self.assertEqual(a["phase"],"REPAIR_REQUIRED");self.assertEqual(a["repair_owner"],"foreground")
+    def test_superseded_failure_is_not_canonical_repair(self):
+        t=self.task(main=GateStatus.WAITING);t.metadata.update({"workflow_conclusion":"failure","event_head_sha":"old","current_pr_head_sha":"abc"})
+        a=canonicalize_task(t);self.assertNotEqual(a["phase"],"REPAIR_REQUIRED")
     def test_failure_opens_one_foreground_repair_generation(self):
         t=self.task(main=GateStatus.FAILED);a=canonicalize_task(t);self.assertEqual(a["phase"],"REPAIR_REQUIRED");self.assertEqual(a["generation"],1);self.assertEqual(a["repair_owner"],"foreground");b=canonicalize_task(t);self.assertEqual(b["generation"],1)
 if __name__=="__main__":unittest.main()
