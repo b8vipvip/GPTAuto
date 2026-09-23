@@ -35,9 +35,9 @@ DoD 不再是字符串清单，而是带 `pending/passed/failed` 状态和 evide
 
 只要 Completion Lease 仍为 active，任何 commit、PR、部分 CI 成功、repair request、merge 或 release-in-progress 都只能作为进度证据，不能作为“任务完成”的依据。Executor 必须公开持久化的 ACTIVE completion guard；只有 Reconcile 产生 terminal DONE evidence 并释放该 Lease 后，宿主/前台代理才允许向用户报告工程任务完成。对话超时或前台会话结束不能覆盖此契约。对于用户要求“修复并发布/推进到完成”的终态任务，宿主必须把 ACTIVE Completion Lease 视为“继续执行”而不只是“禁止宣布 DONE”：PR 创建、Actions 排队/运行、等待异步结果都不是允许结束前台工程回合的边界。宿主必须持续轮询/恢复，直到 terminal DONE，或进入确实需要用户操作的 BLOCKED。Executor 在 repair_request 且 AI Provider 不可用时必须发布机器可读的 Foreground Exit Guard：`foreground_disposition=CONTINUE_REQUIRED`、`allow_foreground_exit=false`、`terminal_done=false`，并绑定 TASK_ID、PR、HEAD_SHA、FAILED_RUN_ID。宿主在结束工程回合前必须重新读取该 guard；只要 exit 未获许可，就必须读取失败日志、修复同一 PR、push 并继续验证，不能把任务重新委托给无修复能力的 GPTAuto 后退出。
 
-### 6.1 前台生命周期桥接
+### 6.1 单一前台生命周期状态权威
 
-对于终态工程任务，`lease_wait` 也不是“可以结束聊天、以后后台继续”的状态。GPTAuto 必须把所有 ACTIVE Lease（包括 `lease_wait`、`repair_request`、`verify`）投影为统一的机器可读 Foreground Lifecycle Bridge：`foreground_disposition=CONTINUE_REQUIRED`、`allow_foreground_exit=false`、`requires_foreground_poll=true`。提交任务的宿主必须消费这个 bridge：`lease_wait` 时继续轮询当前 task/HEAD，状态变化后立即重新决策；`repair_request` 时读取失败 run 并修复同一 PR；只有 terminal DONE 才能得到 `EXIT_ALLOWED`。状态汇报不能替代执行，也不得声称“继续盯着/后台等待”后结束回合，除非宿主确实具备并已启动可恢复的后台执行机制。
+对于终态工程任务，`lease_wait` 也不是“可以结束聊天、以后后台继续”的状态。GPTAuto 必须把所有 ACTIVE Lease（包括 `lease_wait`、`repair_request`、`verify`）投影为唯一的机器可读 `gptauto.host-control/v1`：`foreground_disposition=CONTINUE_REQUIRED`、`allow_foreground_exit=false`、`requires_foreground_poll=true`。提交任务的宿主必须消费这个 host-control：`lease_wait` 时继续轮询当前 task/HEAD，状态变化后立即重新决策；`repair_request` 时读取失败 run 并修复同一 PR；只有 terminal DONE 才能得到 `EXIT_ALLOWED`。状态汇报不能替代执行，也不得声称“继续盯着/后台等待”后结束回合，除非宿主确实具备并已启动可恢复的后台执行机制。
 
 ### 7. 修复
 
@@ -69,9 +69,9 @@ Each DoD criterion has pending/passed/failed state plus evidence. DONE requires 
 
 While a Completion Lease is active, commits, PR creation, partial CI success, repair requests, merges, and releases in progress are progress evidence only. Executor publishes a durable ACTIVE guard. A host/foreground agent may report engineering completion only after Reconcile emits terminal DONE evidence and releases the lease. Chat/session termination never overrides this contract. For terminal engineering requests such as fix-and-release, an ACTIVE Completion Lease is a continuation obligation, not merely a prohibition on saying DONE: PR creation, queued/running Actions, and waiting for asynchronous results are not valid boundaries for ending the foreground engineering turn. The host must poll/recover until terminal DONE or a genuine user-action BLOCKED state. When a repair request has no available AI Provider, Executor must publish a machine-readable Foreground Exit Guard with foreground_disposition=CONTINUE_REQUIRED, allow_foreground_exit=false, terminal_done=false, bound to TASK_ID, PR, HEAD_SHA, and FAILED_RUN_ID. Before ending an engineering turn, the host must re-read this guard; while exit is denied it must inspect the failed run, repair the same PR, push, and continue verification rather than delegating back to an incapable GPTAuto and exiting.
 
-### Foreground lifecycle bridge
+### Single foreground lifecycle authority
 
-For terminal engineering tasks, `lease_wait` is not permission to end the chat and claim background monitoring. Every ACTIVE lease, including `lease_wait`, `repair_request`, and `verify`, is projected as a machine-readable Foreground Lifecycle Bridge with `foreground_disposition=CONTINUE_REQUIRED`, `allow_foreground_exit=false`, and `requires_foreground_poll=true`. The submitting host must consume it: poll the current task/head while waiting, immediately re-decide on state changes, repair the same PR on `repair_request`, and exit only after terminal DONE yields `EXIT_ALLOWED`. A progress report is not a substitute for execution, and the host must not claim it will keep watching in the background unless a real resumable background executor has actually been started.
+For terminal engineering tasks, `lease_wait` is not permission to end the chat and claim background monitoring. Every ACTIVE lease, including `lease_wait`, `repair_request`, and `verify`, is projected as the single machine-readable `gptauto.host-control/v1` authority with `foreground_disposition=CONTINUE_REQUIRED`, `allow_foreground_exit=false`, and `requires_foreground_poll=true`. The submitting host must consume that authority: poll the current task/head while waiting, immediately re-decide on state changes, repair the same PR on `repair_request`, and exit only after terminal DONE yields `EXIT_ALLOWED`. A progress report is not a substitute for execution, and the host must not claim it will keep watching in the background unless a real resumable background executor has actually been started.
 
 ### Waiting and blocking
 
@@ -81,3 +81,8 @@ Asynchronous states are WAITING only for gates selected by the plan. BLOCKED is 
 ### Consumer Sync workflow permission
 
 Consumer Sync is atomic. If a canonical release changes `.github/workflows/*`, the repository must provide `GPTAUTO_SYNC_TOKEN` with Contents write, Pull requests write, and Workflows write. The default GitHub Actions token may not update workflow files. Sync detects this before push, leaves the installed VERSION unchanged, and creates/updates one deduplicated repository issue instead of repeatedly failing with a remote rejection. Releases that do not change workflow files continue to use the normal repository token.
+
+
+### Authority invariant
+
+`gptauto.executor._host_control()` is the only producer of foreground exit permission. Workflow templates may transport and enforce that object, but MUST NOT independently recompute `allow_foreground_exit`, `terminal_done`, `foreground_disposition`, or `next_host_action`. Reconcile is the only post-merge terminal authority. Workflow availability uses one invariant everywhere: a workflow is usable unless its state explicitly starts with `disabled`.

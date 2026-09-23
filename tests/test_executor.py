@@ -78,6 +78,8 @@ class ExecutorTests(unittest.TestCase):
         self.assertTrue(action["completion_lease"]["may_finish_foreground"])
         self.assertEqual(action["completion_lease"]["foreground_completion_status"], "terminal")
         self.assertIn("terminal DONE evidence", action["completion_lease"]["foreground_instruction"])
+        self.assertEqual(action["completion_lease"]["host_control"]["foreground_disposition"], "EXIT_ALLOWED")
+        self.assertTrue(action["completion_lease"]["host_control"]["terminal_done"])
         self.assertEqual(action["completion_receipt"]["completion_gate"], "release")
         self.assertTrue(action["completion_receipt"]["release_required"])
 
@@ -89,6 +91,9 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(lease["foreground_disposition"], "CONTINUE_REQUIRED")
         self.assertFalse(lease["allow_foreground_exit"])
         self.assertTrue(lease["requires_foreground_poll"])
+        self.assertEqual(lease["host_control"]["schema"], "gptauto.host-control/v1")
+        self.assertFalse(lease["host_control"]["allow_foreground_exit"])
+        self.assertEqual(lease["host_control"]["next_host_action"], "CONTINUE_CURRENT_TASK")
 
 
 if __name__ == "__main__":
