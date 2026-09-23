@@ -4,13 +4,16 @@ import argparse
 import json
 from pathlib import Path
 
-from .model import Gate, GateStatus, State, Task\nfrom .orchestrator import canonicalize_task\n
+from .model import Gate, GateStatus, State, Task
+from .orchestrator import canonicalize_task
+
 _FAILURES = {"failure", "timed_out", "action_required", "startup_failure"}
 
 
 def _host_control(task: Task, action: str) -> dict:
     """Single authority for whether the foreground host may end the engineering turn."""
-    authority = canonicalize_task(task)\n    terminal = authority["terminal_done"]
+    authority = canonicalize_task(task)
+    terminal = authority["terminal_done"]
     if terminal:
         next_host_action = "EXIT_ALLOWED"
     elif action == "repair_request":
@@ -21,7 +24,10 @@ def _host_control(task: Task, action: str) -> dict:
         next_host_action = "POLL_CURRENT_TASK_UNTIL_STATE_CHANGES"
     return {
         "schema": "gptauto.host-control/v1",
-        "task_id": task.task_id,\n        "phase": authority["phase"],\n        "generation": authority["generation"],\n        "repair_owner": authority["repair_owner"],
+        "task_id": task.task_id,
+        "phase": authority["phase"],
+        "generation": authority["generation"],
+        "repair_owner": authority["repair_owner"],
         "lease_state": "RELEASED" if terminal else "ACTIVE",
         "terminal_done": terminal,
         "allow_foreground_exit": terminal,
@@ -32,7 +38,8 @@ def _host_control(task: Task, action: str) -> dict:
 
 
 def _lease(task: Task, action: str) -> dict:
-    meta = task.metadata\n    host_control = _host_control(task, action)
+    meta = task.metadata
+    host_control = _host_control(task, action)
     return {
         "active": not host_control["terminal_done"],
         "completion_gate": str(meta.get("completion_gate") or ""),
@@ -54,7 +61,9 @@ def _with_lease(task: Task, action: dict) -> dict:
 
 def next_action(task: Task) -> dict:
     """Turn observer state into an explicit, machine-consumable executor action."""
-    authority = canonicalize_task(task)\n    meta = task.metadata\n    failed = [step.gate.value for step in task.plan if step.status == GateStatus.FAILED]
+    authority = canonicalize_task(task)
+    meta = task.metadata
+    failed = [step.gate.value for step in task.plan if step.status == GateStatus.FAILED]
     conclusion = str(meta.get("workflow_conclusion") or "").lower()
     event_head = str(meta.get("event_head_sha") or meta.get("head_sha") or "")
     current_head = str(meta.get("current_pr_head_sha") or meta.get("head_sha") or "")
