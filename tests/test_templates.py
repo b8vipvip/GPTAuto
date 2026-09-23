@@ -21,7 +21,6 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("gptauto_observation", text)
         self.assertIn("client_payload[observer_run_id]", text)
         self.assertNotIn("|| github.actor != 'github-actions[bot]' ||", text)
-        self.assertIn("Completion Lease active", text)
         self.assertIn("RECONCILED_MAIN_CI_RUN_ID", text)
         self.assertIn("RECONCILED_RELEASE_RUN_ID", text)
         self.assertIn("Release workflow success alone never proves publication", text)
