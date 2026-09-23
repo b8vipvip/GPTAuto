@@ -91,3 +91,12 @@ Consumer Sync is atomic. If a canonical release changes `.github/workflows/*`, t
 ### Control-plane event boundary
 
 Observer ingress is product evidence only. `workflow_run` subscribes to `CI`, never to GPTAuto Observer/Executor/Reconcile or Release. Reconcile is the sole post-merge authority: it dispatches and verifies post-merge CI/Release and writes terminal evidence directly. Control-plane workflow completions MUST NOT feed back into Observer. Task/head idempotency remains a safety net, not the primary loop-prevention mechanism.
+
+
+## 8. Task Protocol v2 / 持久任务与 Continuation Host
+
+v0.14.0 将“任务生命周期”和“ChatGPT execution 生命周期”彻底分离。唯一终态权威是 `gptauto.task-state/v2`。一次 foreground execution 结束不会结束 Task；非 DONE 状态必须持久化。REPAIR_REQUIRED 产生绑定 task_id、generation、current head 的 continuation_key，供 GPTWork 等 Continuation Host 恢复同一任务和 PR。旧 Exit Guard/Completion Lease 仅保留为兼容视图，不得成为第二决策权威。
+
+## Task Protocol v2 / Persistent tasks and Continuation Hosts
+
+v0.14.0 separates task lifetime from ChatGPT execution lifetime. The sole terminal authority is `gptauto.task-state/v2`. Ending one foreground execution never closes a non-DONE task. REPAIR_REQUIRED emits a continuation_key bound to task_id, generation, and current head so a Continuation Host such as GPTWork can resume the same task and PR. Legacy Exit Guard/Completion Lease fields are compatibility views only and MUST NOT become a second decision authority.
