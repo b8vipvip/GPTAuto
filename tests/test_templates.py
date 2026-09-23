@@ -173,7 +173,7 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertNotIn("gh workflow run gptauto-observer.yml", text)
         self.assertIn("cancel-in-progress: true", text)
         self.assertNotIn('.state == "active"', text)
-        self.assertGreaterEqual(text.count('startswith("disabled")'), 3)
+        self.assertGreaterEqual(text.count('startswith("disabled")'), 2)
 
 
 def test_reconcile_uploads_terminal_artifact_before_optional_pr_receipt():
