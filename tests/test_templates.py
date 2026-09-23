@@ -6,7 +6,10 @@ class ConsumerTemplateTests(unittest.TestCase):
     def test_observer_tracks_post_merge_and_release_events(self):
         text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_run:", text)
-        self.assertIn("workflows: [CI, Release]", text)
+        self.assertIn("workflows: [CI]", text)
+        self.assertNotIn("workflows: [CI, Release]", text)
+        self.assertIn("Control-plane workflows are deliberately excluded", text)
+        self.assertIn("github.event.workflow_run.name == 'CI'", text)
         self.assertIn("release:", text)
         self.assertIn('commits/$HEAD_SHA/pulls', text)
         self.assertIn("A merged PR is VERIFY, not DONE", text)
@@ -24,6 +27,9 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("RECONCILED_MAIN_CI_RUN_ID", text)
         self.assertIn("RECONCILED_RELEASE_RUN_ID", text)
         self.assertIn("Release workflow success alone never proves publication", text)
+        self.assertNotIn("workflows: [GPTAuto Observer", text)
+        self.assertNotIn("workflows: [GPTAuto Executor", text)
+        self.assertNotIn("workflows: [GPTAuto Reconcile", text)
         self.assertNotIn('[[ -n "$RELEASE_RUN_ID" ]] && RELEASE_CONCLUSION="success"', text)
         self.assertNotIn("\\\\${{", text)
 
