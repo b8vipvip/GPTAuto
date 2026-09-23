@@ -274,3 +274,18 @@ The canonical lifecycle converges on `RUNNING`, `WAITING_GITHUB`, `REPAIR_REQUIR
 Legacy Exit Guard and Completion Lease fields are compatibility projections only. They are not additional terminal authorities.
 
 
+
+
+### v0.14.1：显式 Post-merge 调度
+
+v0.14.1 收敛 post-merge 链路：Reconcile 不再等待一个“可能由 merge push 自动产生”的产品 CI。由 GitHub Actions `GITHUB_TOKEN` 完成的 merge 不保证再次触发 workflow，因此这种轮询不是可靠协议。
+
+现在 Reconcile 从 workflow catalog 解析唯一产品验证工作流（默认 `CI` / `Build and Test`，非标准名称可显式配置），确认 default branch 仍精确指向目标 merge SHA，然后通过 `workflow_dispatch` **主动启动一次** post-merge validation，记录该 run ID，并只验证这个 run。若工作流不可 dispatch、main 已移动或配置不明确，则立即产生明确恢复错误，不再空转 300 秒等待不存在的 run。
+
+GitHub 的 `workflow_run` 过滤能力只能按 workflow 名称和完成事件筛选，不能按 conclusion/event 在 workflow 创建前过滤。因此少量由 job-level `if:` 产生的 `Skipped` run 属于 GitHub 触发模型的可见副产物；GPTAuto 的目标是不让它们形成控制面自激或重复决策。v0.14.1 不用“把 Skipped 伪装成 success”的方式隐藏它们。
+
+### v0.14.1: explicit post-merge scheduling
+
+Reconcile no longer polls for a product CI run that may never be created after a token-driven merge. It resolves the canonical product validation workflow, verifies that the default branch still equals the target merge SHA, explicitly dispatches exactly one `workflow_dispatch` run, records its run ID, and validates only that run. Non-dispatchable or ambiguous workflows fail immediately with actionable recovery evidence instead of a 300-second registration poll.
+
+A small number of visible `Skipped` runs can still be created by GitHub because `workflow_run` cannot pre-filter on conclusion/event before the workflow run exists. They are acceptable only as non-authoritative trigger artifacts: they must not create control-plane feedback or duplicate lifecycle decisions.
