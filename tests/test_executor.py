@@ -23,7 +23,7 @@ class ExecutorTests(unittest.TestCase):
         self.assertTrue(action["completion_lease"]["active"])
         self.assertTrue(action["completion_lease"]["may_finish_foreground"])
         self.assertEqual(action["completion_lease"]["foreground_completion_status"], "continue_required")
-        self.assertIn("Do not report", action["completion_lease"]["foreground_instruction"])
+        self.assertIn("durable GPTAuto task remains alive", action["completion_lease"]["foreground_instruction"])
 
     def test_failure_becomes_one_head_scoped_repair_cycle(self):
         action = next_action(self.task(pr_ci=GateStatus.FAILED, conclusion="failure"))
@@ -81,7 +81,7 @@ class ExecutorTests(unittest.TestCase):
         self.assertTrue(action["completion_lease"]["may_finish_foreground"])
         self.assertEqual(action["completion_lease"]["foreground_completion_status"], "terminal")
         self.assertIn("terminal DONE evidence", action["completion_lease"]["foreground_instruction"])
-        self.assertEqual(action["completion_lease"]["host_control"]["foreground_disposition"], "EXIT_ALLOWED")
+        self.assertEqual(action["completion_lease"]["host_control"]["next_host_action"], "TASK_CLOSED")
         self.assertTrue(action["completion_lease"]["host_control"]["terminal_done"])
         self.assertEqual(action["completion_receipt"]["completion_gate"], "release")
         self.assertTrue(action["completion_receipt"]["release_required"])
