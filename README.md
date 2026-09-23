@@ -246,22 +246,4 @@ allow_foreground_exit = true
 - `docs/OBSERVABILITY.md`
 
 <a id="english"></a>
-## English
 
-GPTAuto is a goal-bound engineering task lifecycle protocol and reference implementation for GitHub.
-
-Its canonical rule is:
-
-> **Evidence may have many producers; lifecycle decision authority must have exactly one owner.**
-
-Core lifecycle:
-
-    GOAL → PLAN / DoD → IMPLEMENT → PR → PR CI → REPAIR if needed
-         → MERGE → POST-MERGE CI → RELEASE if required
-         → TERMINAL EVIDENCE → DONE
-
-A PR, merge, green workflow, tag, or release job is not independently terminal. Release-oriented tasks become DONE only after the required published release, expected tag/SHA relationship, required assets, post-merge validation, and all other DoD evidence are verified.
-
-Observer accepts product evidence only. GPTAuto control-plane workflows must not feed back into Observer. Orchestrator owns lifecycle transitions; Reconcile owns the post-merge execution/verification path. Task/head/generation deduplication is a safety net rather than a competing scheduler.
-
-Foreground hosts must not terminate an engineering task while its Completion Lease is ACTIVE and `allow_foreground_exit=false`. GitHub Actions cannot resurrect an already-ended host turn, so host/bridge integration must consume the canonical task state before allowing foreground exit.
