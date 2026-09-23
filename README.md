@@ -5,25 +5,232 @@
 <a id="中文"></a>
 ## 中文（默认）
 
-GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与参考实现。v0.6.3 在 v0.6 的仓库侧 Observer 基础上补齐了跨事件任务关联与完成语义：PR、合并后的 main push、main CI、Release 会先反查并绑定到同一个 PR TASK_ID；PR merged 不再直接等于 DONE。版本型开发标题（如 `v0.5.81: ...`）或标题中的“发布 / 正式版 / release / publish”语义会恢复 Release 型 DoD；`chore:` / `docs:` / `test:` / `ci:` / `build:` / `deps:` / `refactor:` 等维护标题优先保持非发布语义，即使正文为了说明验证范围而提到 Release。Observer 会回查历史成功的 main CI 与 Release run，因此二者谁先完成都能最终进入 DONE。v0.7.0 新增 Executor：PR CI 全绿且 Merge gate 等待时可执行安全 squash merge；Actions 失败会生成绑定同一 TASK_ID/run 的 repair request；Observer 每轮会恢复上一份 artifact，使 events.jsonl 成为跨 run 累积事件账本。
+GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程任务生命周期协议与参考实现。
+
+它解决的不是“自动跑几个 Actions”，而是同一个工程任务从用户目标开始，经过开发、PR、CI、修复、合并、main 验证、正式发布，直到拿到可验证的终态证据。在此之前，任务始终保持 ACTIVE。
+
+当前 canonical 协议的核心约束是：
+
+> **Evidence 可以来自多个执行器，Decision Authority 只能有一个。**
 
 ### 核心原则
 
-**任务边界由最终目标决定，不由对话轮次决定。**
+**任务边界由最终目标决定，不由对话轮次、PR、某一次 CI 或某个 Workflow run 决定。**
 
-流程模型：
-
-    GOAL → PLAN / DoD → EXECUTE selected gates → VERIFY DoD → DONE
+    GOAL → PLAN / DoD → EXECUTE → VERIFY → TERMINAL EVIDENCE → DONE
 
 可选 Gate 包括：`INSPECT`、`IMPLEMENT`、`COMMIT`、`PR`、`PR_CI`、`MERGE`、`MAIN_CI`、`RELEASE`、`DEPLOY`、`RUNTIME_VERIFY`。
 
 例如：
 - “修改 README 并提交”不强制 Merge/Release。
-- “修复 Actions 直到 CI 全绿”以 CI 目标达成为终态，不强制 Release。
-- “把代码合并到 main”要求 Merge，但仓库 Observer 仍会等待 post-merge CI 作为完成证据。
-- “修复并发布 v1.2.3 正式版”选择 PR、CI、Merge、main CI、Release 等必要 Gate。
+- “修复 Actions 直到 CI 全绿”以当前任务 CI 全绿为终态。
+- “把代码合并到 main”要求 Merge，并验证合并后的 main。
+- “修复并发布 v1.2.3 正式版”必须完成 PR → CI → Merge → main CI → Release → Release evidence，不能把“已合并”误判为 DONE。
 
-`queued/running` 仍然只是 WAITING；但只有当 CI 本身属于当前任务的动态计划时，它才会阻止 DONE。所有 DoD 条目必须有通过状态和证据，才能进入 DONE。
+`queued` / `running` / “等待 Actions”都是中间态，不是 DONE。
+
+## Canonical 完整任务链路
+
+```text
+用户最终目标
+    │
+    ▼
+1. 创建 Task + Completion Lease
+   task_id / repo / DoD / expected_version
+   release_required / phase=ACTIVE
+    │
+    ▼
+2. Foreground 执行开发
+   branch → code → checks → push → PR
+    │
+    ▼
+3. Observer【只接收产品事件】
+   PR / product CI / merge evidence
+   GPTAuto 控制面事件不得反馈进入 Observer
+    │
+    ▼
+4. Orchestrator【唯一生命周期/调度决策权威】
+    │
+    ├─ CI_RUNNING  → WAIT
+    ├─ CI_FAILED   → REPAIR_REQUIRED
+    ├─ CI_GREEN    → MERGE
+    ├─ MERGED      → POST_MERGE_VALIDATE
+    ├─ RELEASE_REQUIRED → RELEASE
+    └─ DoD 全部满足 → DONE
+    │
+    ▼
+5. PR CI
+    │
+    ├─ failure → 唯一 repair_owner 修复同一 PR → push → 回到验证
+    │
+    └─ success
+          │
+          ▼
+6. Merge main
+          │
+          ▼
+7. 验证 expected merge SHA 已进入 main
+          │
+          ▼
+8. Post-merge CI
+    │
+    ├─ failure → recovery / repair → 重新验证
+    │
+    └─ success
+          │
+          ▼
+9. release_required ?
+    │                 │
+    NO               YES
+    │                 ▼
+    │          canonical Release workflow
+    │                 │
+    │                 ▼
+    │          Release Proof Validator
+    │          - GitHub Release 已 published
+    │          - tag 指向 expected main/merge SHA
+    │          - 必需 artifacts/assets 存在
+    │                 │
+    └────────┬────────┘
+             ▼
+10. Terminal Evidence
+             │
+             ▼
+11. Completion Lease = DONE
+    terminal_done=true
+    allow_foreground_exit=true
+             │
+             ▼
+12. Foreground 才允许结束工程任务
+```
+
+### 单一状态权威
+
+Observer、Executor、Reconcile、Release 不允许分别维护一套“任务是否完成”的结论。它们只提交 evidence。
+
+Canonical Task State 由 Orchestrator 解释并进行唯一状态迁移，例如：
+
+```json
+{
+  "task_id": "GA-xxxx",
+  "repo": "owner/repo",
+  "pr": 123,
+  "expected_version": "1.2.3",
+  "release_required": true,
+  "phase": "RELEASE_VERIFY",
+  "generation": 7,
+  "head_sha": "...",
+  "merge_sha": "...",
+  "repair_owner": "foreground",
+  "ci": "success",
+  "merge": "success",
+  "post_merge_ci": "success",
+  "release": "pending",
+  "terminal_done": false,
+  "allow_foreground_exit": false
+}
+```
+
+task/head/generation 去重只是一道**幂等安全网**，不能成为主要调度机制，也不能与 Orchestrator 分享终态决策权。
+
+### Repair Owner：禁止双重修复权威
+
+每个 generation 同时只能有一个 repair owner：
+
+```text
+repair_owner = foreground
+```
+
+表示前台宿主必须修复同一 PR / 当前 HEAD 对应的失败，push 后重新进入验证。
+
+如果未来明确配置 autonomous AI provider，可以使用：
+
+```text
+repair_owner = gptauto_ai
+```
+
+此时 foreground 不得同时修改同一 repair generation。
+
+没有 AI provider 时，`repair_request` 必须产生明确的 `FOREGROUND_RECOVERY_REQUIRED`，不能永久悬挂，也不能假装后台仍有人修复。
+
+### 前台任务生命周期协议
+
+Foreground 不允许在下面这种状态正常结束：
+
+```text
+Completion Lease = ACTIVE
+terminal_done = false
+allow_foreground_exit = false
+```
+
+尤其禁止把：
+
+```text
+PR 已提交，CI 正在运行，我继续关注。
+```
+
+当成工程任务终态。
+
+GitHub Actions 本身不能重新唤醒一个已经结束的 ChatGPT turn。因此 Host/Bridge 必须在允许前台结束前重新读取 canonical task state。
+
+如果产品运行时确实迫使当前 turn 中断，应记录为类似：
+
+```text
+SUSPENDED_AWAITING_HOST_RESUME
+```
+
+而不是 DONE，也不能声称“后台继续盯着”。
+
+### Merge 不是发布完成
+
+Release 型任务只有在所有要求的终态证据同时成立后才能 DONE：
+
+```text
+PR merged
+AND expected merge SHA is on main
+AND post-merge CI succeeded
+AND GitHub Release is actually published
+AND release tag resolves to expected SHA
+AND required release assets exist
+AND no active repair/recovery generation remains
+```
+
+“PR merged”、“Release workflow green”或“tag 存在”中的任何单项都不能释放 Completion Lease。
+
+### 单向控制面
+
+GPTAuto 控制面必须是单向的：
+
+```text
+产品事件 → Observer → Orchestrator/Executor → Reconcile → CI/Release → terminal evidence
+
+GPTAuto Observer / Executor / Reconcile / Release
+                       └── X ──> 不得反馈成新的 Observer 调度输入
+```
+
+Reconcile 是 post-merge authority，负责触发/验证 post-merge CI 和必要的 Release，并直接提交终态 evidence。
+
+v0.13.24 起，Observer 的 `workflow_run` ingress 只订阅产品 CI；GPTAuto 自身控制面 workflow 和 Release 不再形成 Observer → Executor → Reconcile 的自激循环。Reconcile 的 workflow catalog 仍是单一 discovery authority，但使用完整分页读取，避免 workflow 数量超过 100 时漏掉 Release。
+
+### Completion Lease
+
+只要最终目标没有满足：
+
+```text
+completion_lease = ACTIVE
+terminal_done = false
+allow_foreground_exit = false
+```
+
+只有真正取得最终 DoD evidence 后：
+
+```text
+completion_lease = DONE
+terminal_done = true
+allow_foreground_exit = true
+```
+
+前台才能汇报任务完成。
 
 ### 快速开始
 
@@ -31,21 +238,30 @@ GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程工作协议与
     python -m gptauto.cli init --goal "把代码合并到 main" --repo owner/repo --out task.json
     python -m gptauto.cli status task.json
 
-可以使用多个 `--gate` 和 `--done` 显式覆盖自动规划，供 GPTWork 等宿主的推理层传入更准确的计划。
+消费仓库可安装 canonical Consumer Sync。默认审计日志位于 `.gptauto/logs/<TASK_ID>/`，包括 `task.log`、`state.json`、`events.jsonl`、`summary.md`。
 
-v0.6.3 同时支持 native host TASK_ID 与 repository observer 自动捕获；消费仓库可安装 `consumer-template/gptauto-observer.yml` 与 `consumer-template/gptauto-sync.yml`。Observer 会将 PR/main CI/Release 重新关联到同一个任务；Consumer Sync 会同时安装 Observer 与 Executor，支持原生 `github.token`，也支持在仓库禁止 Actions 创建 PR 时使用最小权限 `GPTAUTO_SYNC_TOKEN`。
-
-默认审计日志生成在 `.gptauto/logs/<TASK_ID>/`，包含 `task.log`、`state.json`、`events.jsonl`、`summary.md`；宿主工作流可使用内置 upload action 自动归档为 `gptauto-<TASK_ID>` Artifact。详见 `docs/OBSERVABILITY.md`、`docs/PROTOCOL.md` 与 `docs/INTEGRATION.md`。
+进一步协议与集成说明见：
+- `docs/PROTOCOL.md`
+- `docs/INTEGRATION.md`
+- `docs/OBSERVABILITY.md`
 
 <a id="english"></a>
 ## English
 
-GPTAuto is a goal-bound GitHub engineering workflow protocol and reference implementation. v0.6.3 correlates PR, post-merge push, main CI and release events back to one PR-derived TASK_ID. Merge is no longer terminal observer evidence: normal merged tasks wait for post-merge CI, while versioned/release-oriented tasks wait for both post-merge CI and successful release evidence.
+GPTAuto is a goal-bound engineering task lifecycle protocol and reference implementation for GitHub.
+
+Its canonical rule is:
+
+> **Evidence may have many producers; lifecycle decision authority must have exactly one owner.**
 
 Core lifecycle:
 
-    GOAL → PLAN / DoD → EXECUTE selected gates → VERIFY DoD → DONE
+    GOAL → PLAN / DoD → IMPLEMENT → PR → PR CI → REPAIR if needed
+         → MERGE → POST-MERGE CI → RELEASE if required
+         → TERMINAL EVIDENCE → DONE
 
-Available gates include `INSPECT`, `IMPLEMENT`, `COMMIT`, `PR`, `PR_CI`, `MERGE`, `MAIN_CI`, `RELEASE`, `DEPLOY`, and `RUNTIME_VERIFY`.
+A PR, merge, green workflow, tag, or release job is not independently terminal. Release-oriented tasks become DONE only after the required published release, expected tag/SHA relationship, required assets, post-merge validation, and all other DoD evidence are verified.
 
-Consumer Sync can use the native repository `GITHUB_TOKEN` where Actions is allowed to create PRs, or an optional least-privilege `GPTAUTO_SYNC_TOKEN` when that repository policy is disabled. Policy denial now leaves a prepared sync branch plus an actionable workflow summary instead of a misleading sync failure.
+Observer accepts product evidence only. GPTAuto control-plane workflows must not feed back into Observer. Orchestrator owns lifecycle transitions; Reconcile owns the post-merge execution/verification path. Task/head/generation deduplication is a safety net rather than a competing scheduler.
+
+Foreground hosts must not terminate an engineering task while its Completion Lease is ACTIVE and `allow_foreground_exit=false`. GitHub Actions cannot resurrect an already-ended host turn, so host/bridge integration must consume the canonical task state before allowing foreground exit.
