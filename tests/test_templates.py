@@ -136,7 +136,10 @@ class ConsumerTemplateTests(unittest.TestCase):
     def test_reconciler_waits_for_post_merge_gates_and_emits_done_itself(self):
         text = Path("consumer-template/gptauto-reconcile.yml").read_text(encoding="utf-8")
         self.assertIn("timeout-minutes: 35", text)
-        self.assertIn("Resolve canonical post-merge validation gate", text)\n        self.assertIn("Product post-merge workflow for $MERGE_SHA is not registered yet; WAITING", text)\n        self.assertIn("Timed out waiting for product post-merge workflow registration", text)\n        self.assertIn("secrets.GPTAUTO_EXECUTOR_TOKEN || github.token", text)
+        self.assertIn("Resolve canonical post-merge validation gate", text)
+        self.assertIn("Product post-merge workflow for $MERGE_SHA is not registered yet; WAITING", text)
+        self.assertIn("Timed out waiting for product post-merge workflow registration", text)
+        self.assertIn("secrets.GPTAUTO_EXECUTOR_TOKEN || github.token", text)
         self.assertIn("GPTAUTO_POST_MERGE_WORKFLOW", text)
         self.assertIn('select(.name == "Build and Test")', text)
         self.assertIn("Required product validation success evidence is missing", text)
