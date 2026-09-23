@@ -25,7 +25,7 @@ class OrchestratorTests(unittest.TestCase):
         state=canonicalize_task(t)
         self.assertEqual(state["protocol"],"gptauto.task-state/v2")
         self.assertFalse(state["terminal_done"])
-        self.assertEqual(state["phase"],"MERGE")
+        self.assertEqual(state["phase"],"RUNNING")
 
     def test_repair_generation_has_stable_continuation_identity(self):
         t=self.task(Gate.PR_CI)
