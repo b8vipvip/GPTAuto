@@ -72,7 +72,10 @@ class ExecutorTests(unittest.TestCase):
         self.assertTrue(action["completion_lease"]["active"])
 
     def test_done_releases_completion_lease(self):
-        action = next_action(self.task(state=State.DONE, merge=GateStatus.PASSED))
+        task = self.task(state=State.DONE, merge=GateStatus.PASSED)
+        task.plan.extend([GateStep(Gate.MAIN_CI, status=GateStatus.PASSED, evidence="main-ci"), GateStep(Gate.RELEASE, status=GateStatus.PASSED, evidence="v1.2.3")])
+        task.metadata["release_run_id"] = "99"
+        action = next_action(task)
         self.assertEqual(action["action"], "done")
         self.assertFalse(action["completion_lease"]["active"])
         self.assertTrue(action["completion_lease"]["may_finish_foreground"])
