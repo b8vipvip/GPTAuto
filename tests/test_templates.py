@@ -88,7 +88,7 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("Publish foreground exit guard artifact", text)
         self.assertIn("id: repair-dispatch", text)
         self.assertIn("foreground-exit-denied=true", text)
-        self.assertIn("Enforce foreground exit guard", text)
+        self.assertIn("Publish continuation request", text)
         self.assertIn("CONTINUATION_REQUIRED", text)
         self.assertIn("Publish canonical host control", text)
         self.assertIn("gptauto.host-control/v1", text)
