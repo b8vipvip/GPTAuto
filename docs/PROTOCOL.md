@@ -109,3 +109,12 @@ Reconcile MUST NOT infer that merging with a GitHub Actions token will create a 
 Reconcile 不再把“merge 后自然出现 push CI”作为协议前提。它必须显式 dispatch 唯一 canonical product validation，并把 run ID 绑定到当前 Task/merge generation；只允许该 run 的成功证据满足 post-merge gate。
 
 `workflow_run` cannot pre-filter every conclusion/event before GitHub creates a run. Job-level filters may therefore leave a small number of visible Skipped runs. Those runs are non-authoritative artifacts and MUST NOT feed the control plane or advance canonical Task State.
+
+
+## 10. v0.14.2 explicit control-plane edge / 显式控制面调度边
+
+Observer workflow completion is evidence about the Observer process, not permission to schedule Executor. The only Observer → Executor scheduling edge is `repository_dispatch` with event type `gptauto_observation`, emitted after actionable product evidence has been durably captured.
+
+GitHub may instantiate Observer for a subscribed product `workflow_run` before GPTAuto can inspect conclusion/branch. Observer MUST classify that ingress inside the job. Non-actionable events terminate as successful no-ops and MUST NOT dispatch Executor. This avoids a chain of workflow-level Skipped runs without creating a second terminal authority.
+
+Observer 的“运行结束”不再等于 Executor 调度许可。只有完成 actionable evidence capture 后显式发出的 `gptauto_observation` 才能推进控制面。
