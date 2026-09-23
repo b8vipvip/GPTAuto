@@ -85,7 +85,7 @@ Consumer Sync is atomic. If a canonical release changes `.github/workflows/*`, t
 
 ### Authority invariant
 
-`gptauto.executor._host_control()` is the only producer of foreground exit permission. Workflow templates may transport and enforce that object, but MUST NOT independently recompute `allow_foreground_exit`, `terminal_done`, `foreground_disposition`, or `next_host_action`. Reconcile is the only post-merge terminal authority. Workflow availability uses one invariant everywhere: a workflow is usable unless its state explicitly starts with `disabled`.
+`gptauto.orchestrator.canonicalize_task()` is the only lifecycle authority for phase, repair generation/owner, terminal DONE, Completion Lease and foreground-exit permission. Observer only records evidence; Executor/host-control transports and enforces the canonical projection and MUST NOT independently decide terminal state. Reconcile is the only post-merge execution authority, but terminal permission still comes from the canonical Orchestrator projection. Workflow availability uses one invariant everywhere: a workflow is usable unless its state explicitly starts with `disabled`.
 
 
 ### Control-plane event boundary
