@@ -82,10 +82,10 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("foreground-exit-denied=true", text)
         self.assertIn("Enforce foreground exit guard", text)
         self.assertIn("FOREGROUND_EXIT_DENIED", text)
-        self.assertIn("Publish foreground lifecycle bridge", text)
-        self.assertIn("gptauto.foreground-lifecycle-bridge/v1", text)
-        self.assertIn("requires_foreground_poll:true", text)
-        self.assertIn("POLL_CURRENT_TASK_UNTIL_STATE_CHANGES", text)
+        self.assertIn("Publish canonical host control", text)
+        self.assertIn("gptauto.host-control/v1", text)
+        self.assertIn("Upload canonical host control", text)
+        self.assertNotIn("gptauto.foreground-lifecycle-bridge/v1", text)
         self.assertIn("actions/upload-artifact@v4", text)
         self.assertIn("EXIT_GUARD=DENY", text)
         self.assertIn("MUST re-read the current task guard", text)
@@ -161,6 +161,8 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("Completion Lease remains ACTIVE as reconcile_recovery", text)
         self.assertNotIn("gh workflow run gptauto-observer.yml", text)
         self.assertIn("cancel-in-progress: true", text)
+        self.assertNotIn('.state == "active"', text)
+        self.assertGreaterEqual(text.count('startswith("disabled")'), 3)
 
 
 def test_reconcile_uploads_terminal_artifact_before_optional_pr_receipt():
