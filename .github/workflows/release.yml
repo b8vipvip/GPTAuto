@@ -1,17 +1,17 @@
 name: Release
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing vMAJOR.MINOR.PATCH tag to publish
-        required: true
+        description: Optional vMAJOR.MINOR.PATCH tag; defaults to pyproject version
+        required: false
         type: string
 permissions:
   contents: write
 concurrency:
-  group: gptauto-release-${{ github.ref }}-${{ inputs.tag || github.ref_name }}
+  group: gptauto-release
   cancel-in-progress: false
 jobs:
   verify-and-release:
@@ -24,26 +24,44 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Resolve release tag
+      - name: Resolve canonical release version
         id: version
         shell: bash
         run: |
           set -Eeuo pipefail
-          tag="${{ inputs.tag || github.ref_name }}"
+          configured="${{ inputs.tag }}"
+          if [[ -n "$configured" ]]; then
+            tag="$configured"
+          else
+            version="$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml","rb") as f:
+              print(tomllib.load(f)["project"]["version"])
+          PY
+          )"
+            tag="v$version"
+          fi
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid semver tag: $tag"; exit 1; }
-          git rev-parse "$tag^{commit}" >/dev/null 2>&1 || { echo "::error::Tag does not exist: $tag"; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - run: python -m unittest discover -s tests -v
       - run: python -m compileall -q gptauto
-      - name: Publish GitHub Release
+      - name: Publish exact main version once
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
+          SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -Eeuo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists"
-          else
-            gh release create "$TAG" --verify-tag --title "GPTAuto $TAG" --generate-notes
+            echo "Release $TAG already exists; canonical version is already published."
+            exit 0
           fi
+          if git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
+            tagged="$(git rev-parse "$TAG^{commit}")"
+            [[ "$tagged" == "$SHA" ]] || { echo "::error::Unpublished tag $TAG points to $tagged, expected $SHA"; exit 1; }
+          else
+            git tag "$TAG" "$SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+          gh release create "$TAG" --verify-tag --title "GPTAuto $TAG" --generate-notes --target "$SHA"
