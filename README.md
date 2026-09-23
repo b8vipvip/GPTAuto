@@ -289,3 +289,14 @@ GitHub 的 `workflow_run` 过滤能力只能按 workflow 名称和完成事件�
 Reconcile no longer polls for a product CI run that may never be created after a token-driven merge. It resolves the canonical product validation workflow, verifies that the default branch still equals the target merge SHA, explicitly dispatches exactly one `workflow_dispatch` run, records its run ID, and validates only that run. Non-dispatchable or ambiguous workflows fail immediately with actionable recovery evidence instead of a 300-second registration poll.
 
 A small number of visible `Skipped` runs can still be created by GitHub because `workflow_run` cannot pre-filter on conclusion/event before the workflow run exists. They are acceptable only as non-authoritative trigger artifacts: they must not create control-plane feedback or duplicate lifecycle decisions.
+
+
+### v0.14.2：显式 Observer → Executor 调度
+
+v0.14.2 继续收敛控制面。Executor 不再订阅 `GPTAuto Observer` 的 `workflow_run` 完成事件；Observer 只有在捕获到可执行产品证据后，才通过唯一的 `repository_dispatch:gptauto_observation` 调度 Executor。
+
+对于 GitHub 必然先创建、之后才能判断是否应忽略的 `workflow_run`（例如 Reconcile 主动启动且成功的 main CI），Observer 在 job 内做 ingress 分类：非 actionable 事件以 **successful no-op** 结束，不再在 Actions 顶层留下 Skipped Observer；同时不会创建 Executor。这样去掉的是无效调度边，而不是把 Skipped 改名成 success 后继续执行控制链。
+
+### v0.14.2: explicit Observer → Executor scheduling
+
+Executor no longer wakes from every Observer workflow completion. Observer captures actionable product evidence and then emits one explicit `repository_dispatch:gptauto_observation` scheduler edge carrying the Observer run ID. Non-actionable CI completion events are classified inside Observer and finish as a successful no-op, with no Executor scheduled. This removes the visible skipped-control-run cascade while preserving one canonical lifecycle authority.
