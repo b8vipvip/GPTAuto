@@ -29,6 +29,18 @@ GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程任务生命周
 
 `queued` / `running` / “等待 Actions”都是中间态，不是 DONE。
 
+## Task Protocol v2：持久任务，短生命周期执行
+
+从 v0.14.0 开始，GPTAuto 不再把“阻止某一个 ChatGPT turn 退出”当成任务连续性的基础。核心不变量改为：
+
+> **Task lifecycle is persistent; ChatGPT executions are disposable.**
+
+`gptauto.task-state/v2` 是唯一终态权威。前台 ChatGPT、GPTWork、Observer、Executor、Reconcile 都不能独立决定 DONE。一次 ChatGPT execution 可以结束，但只要 canonical Task State 不是 `DONE`，工程任务仍然存活。
+
+Canonical 状态收敛为 `RUNNING`、`WAITING_GITHUB`、`REPAIR_REQUIRED`、`USER_ACTION_REQUIRED`、`DONE`。失败进入 `REPAIR_REQUIRED` 时，Task State 生成绑定 `task_id + generation + current head` 的 `continuation_key`。Continuation Host（例如 GPTWork）只消费这个状态：等待时不需要保持旧 turn；需要修复时恢复同一任务/PR；只有 `DONE` 才关闭任务。
+
+旧的 Exit Guard/Completion Lease 字段仅作为兼容投影，不再拥有第二套终态决策权。任务连续性来自持久 Task State + continuation，而不是某次对话是否仍存活。
+
 ## Canonical 完整任务链路
 
 ```text
@@ -246,4 +258,19 @@ allow_foreground_exit = true
 - `docs/OBSERVABILITY.md`
 
 <a id="english"></a>
+
+## English
+
+### Task Protocol v2: persistent tasks, disposable executions
+
+Starting with v0.14.0, GPTAuto no longer treats preventing a particular ChatGPT turn from exiting as the basis of task continuity.
+
+> **Task lifecycle is persistent; ChatGPT executions are disposable.**
+
+`gptauto.task-state/v2` is the sole terminal authority. ChatGPT, GPTWork, Observer, Executor, and Reconcile do not independently decide DONE. A foreground execution may end while the engineering task remains alive.
+
+The canonical lifecycle converges on `RUNNING`, `WAITING_GITHUB`, `REPAIR_REQUIRED`, `USER_ACTION_REQUIRED`, and `DONE`. A repair transition creates a continuation identity bound to `task_id + generation + current head`. A Continuation Host such as GPTWork waits without keeping an old turn alive, resumes the same task/PR when continuation is required, and closes the task only on canonical DONE.
+
+Legacy Exit Guard and Completion Lease fields are compatibility projections only. They are not additional terminal authorities.
+
 
