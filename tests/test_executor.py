@@ -1,13 +1,13 @@
 import unittest
 
 from gptauto.executor import next_action
-from gptauto.model import Criterion, Gate, GateStatus, GateStep, State, Task
+from gptauto.model import Criterion, CriterionStatus, Gate, GateStatus, GateStep, State, Task
 
 
 class ExecutorTests(unittest.TestCase):
     def task(self, *, state=State.EXECUTE, pr_ci=GateStatus.PASSED, merge=GateStatus.WAITING, conclusion="success"):
         return Task(
-            "GA-test", "v1.2.3: ship", "o/r", [Criterion("done")], state=state,
+            "GA-test", "v1.2.3: ship", "o/r", [Criterion("done", CriterionStatus.PASSED, "verified")], state=state,
             plan=[GateStep(Gate.PR_CI, status=pr_ci), GateStep(Gate.MERGE, status=merge)],
             metadata={
                 "pr_number": "7", "head_sha": "abc", "event_head_sha": "abc", "current_pr_head_sha": "abc",
@@ -72,7 +72,10 @@ class ExecutorTests(unittest.TestCase):
         self.assertTrue(action["completion_lease"]["active"])
 
     def test_done_releases_completion_lease(self):
-        action = next_action(self.task(state=State.DONE, merge=GateStatus.PASSED))
+        task = self.task(state=State.DONE, merge=GateStatus.PASSED)
+        task.plan.extend([GateStep(Gate.MAIN_CI, status=GateStatus.PASSED, evidence="main-ci"), GateStep(Gate.RELEASE, status=GateStatus.PASSED, evidence="v1.2.3")])
+        task.metadata["release_run_id"] = "99"
+        action = next_action(task)
         self.assertEqual(action["action"], "done")
         self.assertFalse(action["completion_lease"]["active"])
         self.assertTrue(action["completion_lease"]["may_finish_foreground"])
