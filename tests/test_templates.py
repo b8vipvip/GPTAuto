@@ -45,7 +45,8 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("GPTAUTO_SYNC_TOKEN", text)
         self.assertIn("Workflows: Read and write", text)
         self.assertIn("printf -v body", text)
-        self.assertNotIn('body="$marker\\n            GPTAuto detected', text)
+        self.assertNotIn('body="$marker\
+            GPTAuto detected', text)
         self.assertNotIn('echo "- Target version: `$ver`"', text)
         self.assertIn("Consumer left unchanged (atomic sync)", text)
         self.assertIn("issues: write", text)
@@ -135,7 +136,10 @@ class ConsumerTemplateTests(unittest.TestCase):
     def test_reconciler_waits_for_post_merge_gates_and_emits_done_itself(self):
         text = Path("consumer-template/gptauto-reconcile.yml").read_text(encoding="utf-8")
         self.assertIn("timeout-minutes: 35", text)
-        self.assertIn("Resolve and start post-merge validation gates", text)
+        self.assertIn("Resolve canonical post-merge validation gate", text)
+        self.assertIn("GPTAUTO_POST_MERGE_WORKFLOW", text)
+        self.assertIn('select(.name == "Build and Test")', text)
+        self.assertIn("Required product validation success evidence is missing", text)
         self.assertIn("gh workflow view", text)
         self.assertIn("workflows:", text)
         self.assertIn("Require published release evidence", text)
