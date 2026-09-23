@@ -91,7 +91,7 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("Publish continuation request", text)
         self.assertIn("CONTINUATION_REQUIRED", text)
         self.assertIn("Publish canonical host control", text)
-        self.assertIn("gptauto.host-control/v1", text)
+        self.assertIn("gptauto.host-control/v2", text)
         self.assertIn("Upload canonical host control", text)
         self.assertNotIn("gptauto.foreground-lifecycle-bridge/v1", text)
         self.assertIn("actions/upload-artifact@v4", text)
