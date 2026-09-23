@@ -86,3 +86,8 @@ Consumer Sync is atomic. If a canonical release changes `.github/workflows/*`, t
 ### Authority invariant
 
 `gptauto.executor._host_control()` is the only producer of foreground exit permission. Workflow templates may transport and enforce that object, but MUST NOT independently recompute `allow_foreground_exit`, `terminal_done`, `foreground_disposition`, or `next_host_action`. Reconcile is the only post-merge terminal authority. Workflow availability uses one invariant everywhere: a workflow is usable unless its state explicitly starts with `disabled`.
+
+
+### Control-plane event boundary
+
+Observer ingress is product evidence only. `workflow_run` subscribes to `CI`, never to GPTAuto Observer/Executor/Reconcile or Release. Reconcile is the sole post-merge authority: it dispatches and verifies post-merge CI/Release and writes terminal evidence directly. Control-plane workflow completions MUST NOT feed back into Observer. Task/head idempotency remains a safety net, not the primary loop-prevention mechanism.
