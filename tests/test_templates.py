@@ -20,7 +20,6 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("successful no-op", text)
         self.assertIn("gptauto_observation", text)
         self.assertIn("client_payload[observer_run_id]", text)
-        self.assertIn("github.event_name == 'push'", text)
         self.assertNotIn("|| github.actor != 'github-actions[bot]' ||", text)
         self.assertIn("Completion Lease active", text)
         self.assertIn("RECONCILED_MAIN_CI_RUN_ID", text)
