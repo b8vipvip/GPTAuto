@@ -17,24 +17,28 @@ def _step(task: Task, gate_name: Gate):
 def canonical_phase(task: Task) -> str:
     """Protocol v2 single lifecycle authority derived only from durable task evidence."""
     conclusion = str(task.metadata.get("workflow_conclusion") or "").lower()
+    pr_ci_status = str(task.metadata.get("pr_ci_status") or "").lower()
+    pr_ci_conclusion = str(task.metadata.get("pr_ci_conclusion") or "").lower()
     event_head = str(task.metadata.get("event_head_sha") or "")
     current_head = str(task.metadata.get("current_pr_head_sha") or task.metadata.get("head_sha") or "")
     current_event = not (event_head and current_head and event_head != current_head)
 
     # GitHub uses action_required for an approval/actor intervention gate. It is
     # not product-code failure evidence and must never spend a repair generation.
-    if conclusion == "action_required" and current_event:
+    if current_event and (conclusion == "action_required" or pr_ci_conclusion == "action_required"):
         return "USER_ACTION_REQUIRED"
 
     failed = next(
         (s for s in task.plan if s.required and s.status == GateStatus.FAILED),
         None,
     )
-    current_failure = (
-        conclusion in {"failure", "timed_out", "startup_failure"}
-        and current_event
+    current_failure = conclusion in {"failure", "timed_out", "startup_failure"} and current_event
+    current_pr_ci_failure = (
+        current_event
+        and pr_ci_status == "completed"
+        and pr_ci_conclusion in {"failure", "timed_out", "startup_failure"}
     )
-    if failed or current_failure:
+    if failed or current_failure or current_pr_ci_failure:
         return "REPAIR_REQUIRED"
 
     merge = _step(task, Gate.MERGE)
