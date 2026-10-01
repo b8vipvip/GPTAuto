@@ -47,7 +47,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Reconcile active PR completion leases
+      - name: Reconcile only stalled active PR completion leases
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -61,11 +61,20 @@ jobs:
               marker="<!-- gptauto-completion-lease:$task_id -->"
               active="$(gh api "repos/$REPOSITORY/issues/$pr/comments?per_page=100" \
                 --jq --arg marker "$marker" '[.[] | select((.body // "") | contains($marker))] | last | .body // ""' 2>/dev/null || true)"
-              if grep -Fq 'Completion Lease is ACTIVE' <<<"$active"; then
-                echo "Watchdog recovering active task=$task_id pr=$pr head=$head"
-                gh workflow run gptauto-observer.yml --repo "$REPOSITORY" --ref "$DEFAULT_BRANCH" \
-                  -f pr_number="$pr" -f head_sha="$head"
+              grep -Fq 'Completion Lease is ACTIVE' <<<"$active" || continue
+
+              ci="$(gh api "repos/$REPOSITORY/actions/runs?head_sha=$head&per_page=100" \
+                --jq '[.workflow_runs[] | select(.name == "CI" and .event == "pull_request")] | sort_by(.created_at,.id) | last // {}' 2>/dev/null || echo '{}')"
+              ci_status="$(jq -r '.status // "missing"' <<<"$ci")"
+              ci_run="$(jq -r '.id // empty' <<<"$ci")"
+              if [[ "$ci_status" == "queued" || "$ci_status" == "in_progress" || "$ci_status" == "requested" || "$ci_status" == "waiting" ]]; then
+                echo "Watchdog insurance skipped task=$task_id; native CI run ${ci_run:-unknown} is still $ci_status and workflow_run is the primary wake-up path."
+                continue
               fi
+
+              echo "Watchdog recovering stalled task=$task_id pr=$pr head=$head ci_status=$ci_status"
+              gh workflow run gptauto-observer.yml --repo "$REPOSITORY" --ref "$DEFAULT_BRANCH" \
+                -f pr_number="$pr" -f head_sha="$head"
             done
 
   observe:
@@ -114,6 +123,26 @@ jobs:
             echo "::notice::GPTAuto Observer accepted a non-actionable or auxiliary product event as a successful no-op; no Executor will be scheduled."
           fi
 
+      - name: Cancel superseded pull-request workflow runs
+        if: ${{ steps.ingress.outputs.actionable == 'true' && github.event_name == 'pull_request' && github.event.action == 'synchronize' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          CURRENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gh api "repos/$REPOSITORY/actions/runs?event=pull_request&branch=$HEAD_REF&per_page=100" --paginate \
+            --jq --argjson pr "$PR_NUMBER" --arg head "$CURRENT_HEAD" \
+            '.workflow_runs[] | select(.head_sha != $head) | select(.status != "completed") | select(any(.pull_requests[]?; .number == $pr)) | select(.name | startswith("GPTAuto ") | not) | .id' |
+          while read -r run_id; do
+            [[ -n "$run_id" ]] || continue
+            echo "Cancelling superseded PR run $run_id; current head is $CURRENT_HEAD"
+            gh api --method POST "repos/$REPOSITORY/actions/runs/$run_id/cancel" >/dev/null 2>&1 || true
+          done
+
       - uses: actions/checkout@v4
         if: ${{ steps.ingress.outputs.actionable == 'true' }}
         with:
@@ -122,6 +151,25 @@ jobs:
         if: ${{ steps.ingress.outputs.actionable == 'true' }}
         with:
           python-version: '3.12'
+
+      - name: Coalesce short in-progress CI into one observation
+        if: ${{ steps.ingress.outputs.actionable == 'true' && github.event_name == 'workflow_run' && github.event.workflow_run.status == 'in_progress' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 12); do
+            current="$(gh api "repos/$REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+            status="$(jq -r '.status // "missing"' <<<"$current")"
+            conclusion="$(jq -r '.conclusion // ""' <<<"$current")"
+            echo "Coalesce attempt $attempt: run=$SOURCE_RUN_ID status=$status conclusion=${conclusion:-pending}"
+            [[ "$status" == "completed" ]] && break
+            [[ "$attempt" == "12" ]] && break
+            sleep 10
+          done
 
       - name: Capture repository-side GPTAuto task
         if: ${{ steps.ingress.outputs.actionable == 'true' }}
@@ -290,8 +338,10 @@ jobs:
             echo "- Artifact: \`gptauto-$TASK_ID\`"
             echo "- Provenance: \`repository_observer\`"
             echo "- Executor eligible: \`$EXECUTOR_ELIGIBLE\`"
+            echo "- Superseded PR workflow runs are cancelled on synchronize events."
+            echo "- Short in-progress CI runs are coalesced for up to two minutes before an Executor handoff."
             echo "- PR CI evidence is the latest exact-head CI/pull_request run; older success cannot mask a newer run."
             echo "- action_required is USER_ACTION_REQUIRED, never repair evidence."
-            echo "- in_progress workflow_run plus the five-minute watchdog recover approval/rerun and dropped-event liveness."
+            echo "- The five-minute watchdog is insurance only and skips healthy queued/in_progress CI."
             echo "- Non-default-base PRs are auxiliary evidence only and never receive autonomous merge authority."
           } >> "$GITHUB_STEP_SUMMARY"
