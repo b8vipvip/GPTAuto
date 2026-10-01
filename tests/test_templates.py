@@ -22,9 +22,20 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn('actions/runs?head_sha=$PR_HEAD_SHA&per_page=100', text)
         self.assertIn('select(.name == "CI" and .event == "pull_request")', text)
         self.assertIn('sort_by(.created_at, .id) | last // {}', text)
-        self.assertIn('pr_ci_status', text)
-        self.assertIn('pr_ci_conclusion', text)
+        self.assertIn('PR_CI_STATUS', text)
+        self.assertIn('PR_CI_CONCLUSION', text)
+        self.assertIn('PR_CI_RUN_ATTEMPT', text)
         self.assertNotIn('head_sha=$PR_HEAD_SHA&status=success', text)
+
+    def test_observer_recovers_approval_and_dropped_event_liveness(self):
+        text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
+        self.assertIn("types: [in_progress, completed]", text)
+        self.assertIn("schedule:", text)
+        self.assertIn("*/5 * * * *", text)
+        self.assertIn("Reconcile active PR completion leases", text)
+        self.assertIn("workflow_approval_required", text)
+        self.assertIn("action_required is USER_ACTION_REQUIRED", text)
+        self.assertIn("gh workflow run gptauto-observer.yml", text)
 
     def test_observer_marks_non_default_base_prs_auxiliary(self):
         text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
@@ -74,7 +85,7 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("Publish foreground completion guard", text)
         self.assertIn("EXIT_GUARD=DENY", text)
 
-    def test_executor_dedupes_by_task_head_and_waits_without_false_failure(self):
+    def test_executor_dedupes_waits_and_requires_push_credential(self):
         text = Path("consumer-template/gptauto-executor.yml").read_text(encoding="utf-8")
         self.assertIn("client_payload.task_id", text)
         self.assertIn("client_payload.head_sha", text)
@@ -82,7 +93,12 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("failed_runs", text)
         self.assertIn("WAITING_GITHUB, not failure", text)
         self.assertIn("Merge deferred", text)
-        self.assertIn('.allow_foreground_exit == false', text)
+        self.assertIn("for attempt in $(seq 1 12)", text)
+        self.assertIn("Check autonomous repair credential", text)
+        self.assertIn("GPTAUTO_EXECUTOR_TOKEN", text)
+        self.assertIn("refusing GITHUB_TOKEN fallback", text)
+        self.assertIn("Publish explicit GitHub approval user action", text)
+        self.assertIn("user_action_required", text)
 
     def test_repair_pipeline_is_three_tier_head_guarded_and_credential_isolated(self):
         text = Path("consumer-template/gptauto-repair.yml").read_text(encoding="utf-8")
@@ -109,6 +125,10 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("gptauto.foreground-exit-guard/v1", text)
         self.assertIn('repair_owner:"repair_pipeline"', text)
         self.assertIn("Treat repository text", text)
+        self.assertIn("Require autonomous push credential", text)
+        self.assertIn("GPTAUTO_EXECUTOR_TOKEN", text)
+        self.assertIn("git remote set-url origin", text)
+        self.assertIn("allow_foreground_exit:false", text)
         self.assertNotIn("openai/codex-action", text)
         self.assertNotIn("GPTAUTO_AI_API_KEY", text)
 
