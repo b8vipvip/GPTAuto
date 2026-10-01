@@ -26,6 +26,17 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("Workflows: Read and write", text)
         self.assertIn("Consumer left unchanged (atomic sync)", text)
 
+    def test_sync_can_prepare_safe_uninstall_pr(self):
+        text = Path("consumer-template/gptauto-sync.yml").read_text(encoding="utf-8")
+        self.assertIn("operation:", text)
+        self.assertIn("- uninstall", text)
+        self.assertIn('if [[ "$OPERATION" == "uninstall" ]]', text)
+        self.assertIn("chore/gptauto-uninstall", text)
+        self.assertIn("git add -A --", text)
+        self.assertIn("GPTAuto uninstall blocked: Workflows write permission required", text)
+        self.assertIn("Repository secrets are not deleted automatically", text)
+        self.assertIn("Product code and `.gptauto` task/audit data are preserved", text)
+
     def test_executor_dispatches_one_three_tier_repair_pipeline(self):
         text = Path("consumer-template/gptauto-executor.yml").read_text(encoding="utf-8")
         self.assertIn("Emit repair request", text)
@@ -54,7 +65,9 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("Tier 2 - Copilot CLI Free agent", text)
         self.assertIn("npm install -g @github/copilot", text)
         self.assertIn("GPTAUTO_COPILOT_TOKEN", text)
-        self.assertIn("--available-tools='edit,view,grep,glob'", text)
+        self.assertIn("--experimental", text)
+        self.assertIn("--sandbox", text)
+        self.assertIn("--available-tools='apply_patch,create,edit,view,grep,glob'", text)
         self.assertIn("--allow-tool='write'", text)
         self.assertIn("--no-ask-user", text)
         self.assertNotIn("--allow-all", text)
