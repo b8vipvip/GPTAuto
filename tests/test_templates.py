@@ -32,10 +32,20 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("types: [in_progress, completed]", text)
         self.assertIn("schedule:", text)
         self.assertIn("*/5 * * * *", text)
-        self.assertIn("Reconcile active PR completion leases", text)
+        self.assertIn("Reconcile only stalled active PR completion leases", text)
         self.assertIn("workflow_approval_required", text)
         self.assertIn("action_required is USER_ACTION_REQUIRED", text)
         self.assertIn("gh workflow run gptauto-observer.yml", text)
+        self.assertIn("watchdog is insurance only", text)
+        self.assertIn('ci_status" == "queued"', text)
+        self.assertIn('ci_status" == "in_progress"', text)
+
+    def test_observer_cancels_superseded_runs_and_coalesces_short_ci(self):
+        text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
+        self.assertIn("Cancel superseded pull-request workflow runs", text)
+        self.assertIn('actions/runs/$run_id/cancel', text)
+        self.assertIn("Coalesce short in-progress CI", text)
+        self.assertIn("seq 1 12", text)
 
     def test_observer_marks_non_default_base_prs_auxiliary(self):
         text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
@@ -100,6 +110,14 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("Publish explicit GitHub approval user action", text)
         self.assertIn("user_action_required", text)
 
+    def test_executor_retries_only_transient_failed_jobs_once(self):
+        text = Path("consumer-template/gptauto-executor.yml").read_text(encoding="utf-8")
+        self.assertIn("Retry transient failed jobs only", text)
+        self.assertIn("gptauto.ci_policy", text)
+        self.assertIn("rerun-failed-jobs", text)
+        self.assertIn("steps.transient-retry.outputs.retried != 'true'", text)
+        self.assertNotIn('actions/runs/$FAILED_RUN_ID/rerun"', text)
+
     def test_repair_pipeline_is_three_tier_head_guarded_and_credential_isolated(self):
         text = Path("consumer-template/gptauto-repair.yml").read_text(encoding="utf-8")
         self.assertIn("GPTAuto Tiered Repair", text)
@@ -131,6 +149,14 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("allow_foreground_exit:false", text)
         self.assertNotIn("openai/codex-action", text)
         self.assertNotIn("GPTAUTO_AI_API_KEY", text)
+
+    def test_repair_validates_patch_before_push_and_full_ci(self):
+        text = Path("consumer-template/gptauto-repair.yml").read_text(encoding="utf-8")
+        self.assertIn("Run targeted validation before full CI", text)
+        self.assertIn("python -m gptauto.validation", text)
+        self.assertIn("validation-passed", text)
+        self.assertIn("targeted-validation.json", text)
+        self.assertIn("patch failed targeted validation and was not pushed", text)
 
     def test_repair_pipeline_never_pushes_from_copilot_generation_job(self):
         text = Path("consumer-template/gptauto-repair.yml").read_text(encoding="utf-8")

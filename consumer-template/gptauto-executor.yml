@@ -153,8 +153,30 @@ jobs:
             -f task_id="$TASK_ID" -f pr_number="$PR_NUMBER" -f merge_sha="$MERGE_SHA" \
             -f release_required="$RELEASE_REQUIRED"
 
-      - name: Emit repair request
+      - name: Retry transient failed jobs only
+        id: transient-retry
         if: ${{ steps.state.outputs.action == 'repair_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          FAILED_RUN_ID: ${{ steps.state.outputs.run-id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "retried=false" >> "$GITHUB_OUTPUT"
+          [[ -n "$FAILED_RUN_ID" ]] || exit 0
+          run_json="$(gh api "repos/$REPOSITORY/actions/runs/$FAILED_RUN_ID")"
+          attempt="$(jq -r '.run_attempt // 1' <<<"$run_json")"
+          conclusion="$(jq -r '.conclusion // "failure"' <<<"$run_json")"
+          gh run view "$FAILED_RUN_ID" --repo "$REPOSITORY" --log-failed > /tmp/gptauto-failed.log 2>&1 || true
+          if PYTHONPATH=.github python -m gptauto.ci_policy --log /tmp/gptauto-failed.log --conclusion "$conclusion" --attempt "$attempt" >/dev/null; then
+            gh api --method POST "repos/$REPOSITORY/actions/runs/$FAILED_RUN_ID/rerun-failed-jobs" >/dev/null
+            echo "retried=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Transient CI evidence detected; re-running failed jobs only for run $FAILED_RUN_ID before spending a repair generation."
+          fi
+
+      - name: Emit repair request
+        if: ${{ steps.state.outputs.action == 'repair_request' && steps.transient-retry.outputs.retried != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -179,7 +201,7 @@ jobs:
 
       - name: Check autonomous repair credential
         id: repair-credential
-        if: ${{ steps.state.outputs.action == 'repair_request' }}
+        if: ${{ steps.state.outputs.action == 'repair_request' && steps.transient-retry.outputs.retried != 'true' }}
         env:
           GPTAUTO_EXECUTOR_TOKEN: ${{ secrets.GPTAUTO_EXECUTOR_TOKEN }}
         shell: bash
@@ -192,7 +214,7 @@ jobs:
           fi
 
       - name: Publish automation credential user action
-        if: ${{ steps.state.outputs.action == 'repair_request' && steps.repair-credential.outputs.ready != 'true' }}
+        if: ${{ steps.state.outputs.action == 'repair_request' && steps.transient-retry.outputs.retried != 'true' && steps.repair-credential.outputs.ready != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -203,13 +225,13 @@ jobs:
         run: |
           marker="<!-- gptauto-executor-token-required:$TASK_ID:$HEAD_SHA -->"
           body="$marker
-          GPTAuto USER ACTION REQUIRED: configure repository secret GPTAUTO_EXECUTOR_TOKEN with a fine-grained PAT or GitHub App token that can update this repository. GPTAuto will not fall back to GITHUB_TOKEN for repair pushes because that can place the resulting PR workflows into 'awaiting approval'. The five-minute watchdog will retry the same task after the credential is configured."
+          GPTAuto USER ACTION REQUIRED: configure repository secret GPTAUTO_EXECUTOR_TOKEN with a fine-grained PAT or GitHub App token that can update this repository. GPTAuto will not fall back to GITHUB_TOKEN for repair pushes because that can place the resulting PR workflows into 'awaiting approval'. The watchdog will retry the same task after the credential is configured."
           comments="$(gh api "repos/$REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[].body' 2>/dev/null || true)"
           grep -Fq "$marker" <<<"$comments" || gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" --body "$body"
 
       - name: Dispatch three-tier repair pipeline
         id: repair-dispatch
-        if: ${{ steps.state.outputs.action == 'repair_request' && steps.repair-credential.outputs.ready == 'true' }}
+        if: ${{ steps.state.outputs.action == 'repair_request' && steps.transient-retry.outputs.retried != 'true' && steps.repair-credential.outputs.ready == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GPTAUTO_EXECUTOR_TOKEN }}
           REPOSITORY: ${{ github.repository }}
@@ -294,11 +316,13 @@ jobs:
         env:
           ACTION: ${{ steps.state.outputs.action }}
           TASK_ID: ${{ steps.state.outputs.task-id }}
+          RETRIED: ${{ steps.transient-retry.outputs.retried }}
         run: |
           {
             echo "## GPTAuto Executor"
             echo "- Task: \`$TASK_ID\`"
             echo "- Action: \`$ACTION\`"
+            echo "- Transient failed-jobs-only retry: \`${RETRIED:-false}\`"
             echo "- Repair pushes never fall back to GITHUB_TOKEN."
             echo "- queued/in_progress checks get a bounded two-minute wait before WAITING_GITHUB handoff."
             echo "- action_required is USER_ACTION_REQUIRED and never a repair failure."
