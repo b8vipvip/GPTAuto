@@ -1,8 +1,8 @@
-# GPTAuto v0.15.0 three-tier repair pipeline
+# GPTAuto v0.15.x three-tier repair pipeline
 
 ## 中文（默认）
 
-GPTAuto v0.15.0 将 CI 失败修复收敛为一个串行 Repair Pipeline，同一个 `TASK_ID + current HEAD` 同时只有一个 repair owner：`repair_pipeline`。
+GPTAuto v0.15.0 将 CI 失败修复收敛为一个串行 Repair Pipeline，同一个 `TASK_ID + current HEAD` 同时只有一个 repair owner：`repair_pipeline`。v0.15.1 根据真实 GitHub Actions smoke test 修正 Copilot CLI sandbox 启用方式，并补齐安全文件创建/patch 工具。
 
 ```text
 CI failure
@@ -60,10 +60,22 @@ push repaired HEAD -> normal CI -> Executor/Reconcile -> terminal DONE
 
 Tier 1 没有产生 patch 时，workflow 安装 GitHub Copilot CLI，并以非交互模式请求它修改当前 checkout。
 
+v0.15.1 的受限调用方式核心为：
+
+```text
+--experimental
+--sandbox
+--available-tools='apply_patch,create,edit,view,grep,glob'
+--allow-tool='write'
+--no-ask-user
+```
+
+`--sandbox` 当前属于 Copilot CLI experimental sandbox 功能，因此必须同时启用 `--experimental`；否则 CLI 会忽略 sandbox。`apply_patch` / `create` / `edit` 允许模型完成正常代码修复和创建必要的新文件，但 shell、网络、git push、merge、release 等能力仍然没有暴露给模型。
+
 安全边界：
 
 - generation job 使用 `actions/checkout` 的 `persist-credentials: false`。
-- Copilot 只暴露 `edit,view,grep,glob`，显式允许 `write`；不暴露 shell/network/git push/merge/release 工具。
+- Copilot 只暴露 `apply_patch,create,edit,view,grep,glob`，显式允许文件 `write`；不暴露 shell/network/git push/merge/release 工具。
 - 不使用 `--allow-all` / `--yolo`。
 - Copilot 只负责形成 working-tree diff；单独的写权限 job 在再次确认 PR `HEAD_SHA` 后才应用 patch、commit、push。
 - Copilot 的结论不是验证证据；新的 GitHub Actions run 才是验证权威。
@@ -101,4 +113,4 @@ Tier 1、Tier 2、Tier 3 只是该 owner 内部的顺序阶段。这样避免“
 
 ## English
 
-v0.15.0 replaces the optional paid-API repair path with one sequential three-tier repair owner: deterministic repair, Copilot CLI, then explicit foreground recovery. The AI generation job is credential-isolated and cannot push, merge, or publish. Every proposed patch is revalidated against the current PR head and applied by a separate write-capable job. If Copilot Free is unavailable or its allowance is exhausted, the same repair generation falls through to a durable foreground handoff instead of parking or completing the task.
+v0.15.0 replaces the optional paid-API repair path with one sequential three-tier repair owner: deterministic repair, Copilot CLI, then explicit foreground recovery. v0.15.1 hardens the Copilot CLI execution after a real Actions smoke test: local sandboxing is explicitly enabled with `--experimental --sandbox`, and the model is restricted to `apply_patch,create,edit,view,grep,glob` with file-write approval only. The AI generation job remains credential-isolated and cannot push, merge, or publish. Every proposed patch is revalidated against the current PR head and applied by a separate write-capable job. If Copilot Free is unavailable or its allowance is exhausted, the same repair generation falls through to a durable foreground handoff instead of parking or completing the task.
