@@ -6,17 +6,20 @@
       "repository": "b8vipvip/GPTWork",
       "status": "active",
       "version": "v0.15.4",
-      "auto_sync": true
+      "auto_sync": true,
+      "sync_mode": "pull_request"
     },
     {
       "repository": "b8vipvip/chat2api",
-      "status": "pending_sync_verification",
-      "auto_sync": true
+      "status": "active",
+      "auto_sync": true,
+      "sync_mode": "pull_request"
     },
     {
       "repository": "b8vipvip/qnbot",
-      "status": "pending_sync_verification",
-      "auto_sync": true
+      "status": "active",
+      "auto_sync": true,
+      "sync_mode": "pull_request"
     }
   ]
 }
