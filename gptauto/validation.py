@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import py_compile
 import shutil
 import subprocess
 import time
@@ -130,9 +129,10 @@ def run_targeted_validation(repo: Path) -> dict:
     for rel in plan["python"]:
         started = time.monotonic()
         try:
-            py_compile.compile(str(repo / rel), doraise=True)
-            status, detail = "passed", "compiled"
-        except (OSError, py_compile.PyCompileError) as exc:
+            source = (repo / rel).read_text(encoding="utf-8")
+            compile(source, rel, "exec")
+            status, detail = "passed", "compiled in-memory"
+        except (OSError, SyntaxError, UnicodeError) as exc:
             status, detail = "failed", str(exc)
         results.append(ValidationResult(f"python:{rel}", status, detail, round(time.monotonic() - started, 3)))
 
