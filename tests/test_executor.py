@@ -7,12 +7,22 @@ from gptauto.model import Criterion, CriterionStatus, Gate, GateStatus, GateStep
 class ExecutorTests(unittest.TestCase):
     def task(self, *, state=State.EXECUTE, pr_ci=GateStatus.PASSED, merge=GateStatus.WAITING, conclusion="success"):
         return Task(
-            "GA-test", "v1.2.3: ship", "o/r", [Criterion("done", CriterionStatus.PASSED, "verified")], state=state,
+            "GA-test",
+            "v1.2.3: ship",
+            "o/r",
+            [Criterion("done", CriterionStatus.PASSED, "verified")],
+            state=state,
             plan=[GateStep(Gate.PR_CI, status=pr_ci), GateStep(Gate.MERGE, status=merge)],
             metadata={
-                "pr_number": "7", "head_sha": "abc", "event_head_sha": "abc", "current_pr_head_sha": "abc",
-                "run_id": "42", "workflow_name": "CI", "workflow_conclusion": conclusion,
-                "completion_gate": "release", "release_required": True,
+                "pr_number": "7",
+                "head_sha": "abc",
+                "event_head_sha": "abc",
+                "current_pr_head_sha": "abc",
+                "run_id": "42",
+                "workflow_name": "CI",
+                "workflow_conclusion": conclusion,
+                "completion_gate": "release",
+                "release_required": True,
             },
         )
 
@@ -33,6 +43,21 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(action["action"], "repair_request")
         self.assertEqual(action["repair_key"], "GA-test:abc")
         self.assertIn(":abc:repair_request", action["dedupe_key"])
+
+    def test_action_required_becomes_explicit_user_action_not_repair(self):
+        task = self.task(pr_ci=GateStatus.WAITING, conclusion="action_required")
+        task.metadata["blocked_reason"] = "workflow_approval_required"
+        action = next_action(task)
+        self.assertEqual(action["action"], "user_action_required")
+        self.assertEqual(action["blocked_reason"], "workflow_approval_required")
+        self.assertTrue(action["completion_lease"]["active"])
+        self.assertEqual(action["completion_lease"]["foreground_completion_status"], "blocked")
+        self.assertTrue(action["completion_lease"]["allow_foreground_exit"])
+        self.assertFalse(action["completion_lease"]["requires_foreground_poll"])
+        host = action["completion_lease"]["host_control"]
+        self.assertEqual(host["phase"], "USER_ACTION_REQUIRED")
+        self.assertEqual(host["next_host_action"], "REQUEST_USER_ACTION")
+        self.assertEqual(host["repair_owner"], "")
 
     def test_superseded_failure_does_not_create_repair(self):
         task = self.task(pr_ci=GateStatus.WAITING, conclusion="failure")
@@ -80,7 +105,12 @@ class ExecutorTests(unittest.TestCase):
 
     def test_done_releases_completion_lease(self):
         task = self.task(state=State.DONE, merge=GateStatus.PASSED)
-        task.plan.extend([GateStep(Gate.MAIN_CI, status=GateStatus.PASSED, evidence="main-ci"), GateStep(Gate.RELEASE, status=GateStatus.PASSED, evidence="v1.2.3")])
+        task.plan.extend(
+            [
+                GateStep(Gate.MAIN_CI, status=GateStatus.PASSED, evidence="main-ci"),
+                GateStep(Gate.RELEASE, status=GateStatus.PASSED, evidence="v1.2.3"),
+            ]
+        )
         task.metadata["release_run_id"] = "99"
         action = next_action(task)
         self.assertEqual(action["action"], "done")
