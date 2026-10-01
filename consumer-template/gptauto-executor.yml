@@ -9,13 +9,12 @@ permissions:
   pull-requests: write
   issues: write
 concurrency:
-  group: gptauto-executor-${{ github.event.client_payload.observer_run_id || github.run_id }}
+  # The Observer supplies task/head identity. Repeated observations for the same
+  # generation/head collapse onto one Executor instead of racing independently.
+  group: gptauto-executor-${{ github.event.client_payload.task_id || github.event.client_payload.observer_run_id || github.run_id }}-${{ github.event.client_payload.head_sha || github.run_id }}
   cancel-in-progress: true
 jobs:
   execute:
-    # Observer explicitly schedules Executor only after actionable evidence was
-    # captured. Executor no longer subscribes to Observer workflow completion,
-    # eliminating GitHub-created skipped Executor runs.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -53,11 +52,12 @@ jobs:
           echo "run-id=$(jq -r '.run_id // empty' <<<"$action")" >> "$GITHUB_OUTPUT"
           echo "release-required=$(jq -r '.release_required // false' <<<"$action")" >> "$GITHUB_OUTPUT"
           echo "repair-key=$(jq -r '.repair_key // empty' <<<"$action")" >> "$GITHUB_OUTPUT"
+          echo "dedupe-key=$(jq -r '.dedupe_key // empty' <<<"$action")" >> "$GITHUB_OUTPUT"
           echo "lease-active=$(jq -r '.completion_lease.active // false' <<<"$action")" >> "$GITHUB_OUTPUT"
           echo "foreground-status=$(jq -r '.completion_lease.foreground_completion_status // "continue_required"' <<<"$action")" >> "$GITHUB_OUTPUT"
           echo "foreground-disposition=$(jq -r '.completion_lease.foreground_disposition // "CONTINUE_REQUIRED"' <<<"$action")" >> "$GITHUB_OUTPUT"
           echo "allow-foreground-exit=$(jq -r '.completion_lease.allow_foreground_exit // false' <<<"$action")" >> "$GITHUB_OUTPUT"
-          echo "requires-foreground-poll=$(jq -r '.completion_lease.host_control.requires_foreground_poll // true' <<<"$action")" >> "$GITHUB_OUTPUT"
+          echo "requires-foreground-poll=$(jq -r '.completion_lease.requires_foreground_poll // true' <<<"$action")" >> "$GITHUB_OUTPUT"
           echo "host-control=$(jq -c '.completion_lease.host_control' <<<"$action")" >> "$GITHUB_OUTPUT"
       - name: Publish canonical host control
         if: ${{ steps.state.outputs.lease-active == 'true' }}
@@ -68,7 +68,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p .gptauto/host-control
-          jq -e '.schema == "gptauto.host-control/v2" and .task_alive == true' <<<"$HOST_CONTROL" > ".gptauto/host-control/$TASK_ID.json"
+          jq -e '.schema == "gptauto.host-control/v2" and .task_alive == true and .allow_foreground_exit == false' <<<"$HOST_CONTROL" > ".gptauto/host-control/$TASK_ID.json"
           echo "::notice::GPTAUTO_HOST_CONTROL task=$TASK_ID disposition=$(jq -r '.foreground_disposition' <<<"$HOST_CONTROL") next=$(jq -r '.next_host_action' <<<"$HOST_CONTROL")"
       - name: Upload canonical host control
         if: ${{ steps.state.outputs.lease-active == 'true' && hashFiles(format('.gptauto/host-control/{0}.json', steps.state.outputs.task-id)) != '' }}
@@ -103,12 +103,19 @@ jobs:
             | .[]
             | select(.name != "GPTAuto Observer" and .name != "GPTAuto Executor")
           ]' <<<"$runs")"
-          blocking_runs="$(jq '[.[] | select(.status != "completed" or (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped"))]' <<<"$latest_runs")"
-          blocking="$(jq 'length' <<<"$blocking_runs")"
-          if [[ "$blocking" != "0" ]]; then
-            jq -r '.[] | "::error::blocking latest workflow: \(.name) event=\(.event) run=\(.id) status=\(.status) conclusion=\(.conclusion // "null")"' <<<"$blocking_runs"
-            echo "::error::$blocking latest workflow run(s) are not safely complete"
+          pending_runs="$(jq '[.[] | select(.status != "completed")]' <<<"$latest_runs")"
+          failed_runs="$(jq '[.[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped"))]' <<<"$latest_runs")"
+          pending="$(jq 'length' <<<"$pending_runs")"
+          failed="$(jq 'length' <<<"$failed_runs")"
+          if [[ "$failed" != "0" ]]; then
+            jq -r '.[] | "::error::failed latest workflow: \(.name) event=\(.event) run=\(.id) conclusion=\(.conclusion // "null")"' <<<"$failed_runs"
+            echo "::error::$failed latest workflow run(s) completed unsuccessfully"
             exit 1
+          fi
+          if [[ "$pending" != "0" ]]; then
+            jq -r '.[] | "::notice::waiting latest workflow: \(.name) event=\(.event) run=\(.id) status=\(.status)"' <<<"$pending_runs"
+            echo "Merge deferred: $pending latest workflow run(s) are still queued/in_progress. This is WAITING_GITHUB, not failure."
+            exit 0
           fi
 
           gh api --method PUT "repos/$REPOSITORY/pulls/$PR_NUMBER/merge" \
@@ -256,7 +263,7 @@ jobs:
           {
             echo "## GPTAuto timeout recovery"
             echo "- Task: $TASK_ID"
-            echo "- The current foreground ChatGPT session is no longer required for task continuity."
+            echo "- Canonical task remains ACTIVE; a foreground host must resume before reporting completion."
             echo "- State is checkpointed in the Observer artifact; subsequent GitHub events reattach to the same TASK_ID."
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Executor summary
@@ -269,8 +276,8 @@ jobs:
             echo "## GPTAuto Executor"
             echo "- Task: $TASK_ID"
             echo "- Decision: $ACTION"
-            echo "- Safe merge is executed only after all current head workflows are completed successfully/neutral/skipped."
+            echo "- Running/queued current-head workflows defer merge as WAITING_GITHUB and never create a false failed Executor run."
             echo "- Failures become one repair cycle per TASK_ID + current PR head; superseded/cancelled runs do not create repair storms."
             echo "- Repair authority is one pipeline: deterministic → Copilot CLI → explicit foreground recovery; tiers never run as competing repair owners."
-            echo "- A non-DONE task keeps an explicit completion lease active; foreground completion is valid only after DoD."
+            echo "- A non-DONE task keeps the completion lease active and allow_foreground_exit=false."
           } >> "$GITHUB_STEP_SUMMARY"

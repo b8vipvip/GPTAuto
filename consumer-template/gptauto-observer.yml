@@ -24,17 +24,12 @@ on:
       - main
       - master
   # Control-plane workflows are deliberately excluded from workflow_run.
-  # Observer consumes product evidence only; Reconcile owns post-merge CI/Release
-  # and emits terminal evidence directly, so feeding Release back into Observer
-  # would create a control-plane feedback loop.
   workflow_run:
     workflows: [CI]
     types: [completed]
   release:
     types: [published]
 permissions:
-  # contents:write is required only to emit the explicit repository_dispatch
-  # handoff. The handoff is the scheduler edge; workflow completion is not.
   contents: write
   actions: read
   pull-requests: read
@@ -43,10 +38,6 @@ concurrency:
   cancel-in-progress: true
 jobs:
   observe:
-    # GitHub creates workflow_run workflows before a job-level if can reject
-    # them. Classify inside the job so intentionally ignored evidence is a
-    # successful no-op, not a visible Skipped workflow. Only actionable
-    # observations emit the explicit repository_dispatch scheduler edge.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -57,19 +48,28 @@ jobs:
           WORKFLOW_NAME: ${{ github.event.workflow_run.name || '' }}
           WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
           WORKFLOW_BRANCH: ${{ github.event.workflow_run.head_branch || '' }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref || github.event.workflow_run.pull_requests[0].base.ref || '' }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           ACTOR: ${{ github.actor }}
         shell: bash
         run: |
           actionable=false
           case "$EVENT_NAME" in
-            workflow_dispatch|release|pull_request) actionable=true ;;
+            workflow_dispatch|release) actionable=true ;;
+            pull_request)
+              # GPTAuto owns autonomous completion only for PRs targeting the
+              # repository default branch. Branch-to-branch sync/backport PRs are
+              # auxiliary evidence and must never become competing merge tasks.
+              [[ "$PR_BASE_REF" == "$DEFAULT_BRANCH" ]] && actionable=true
+              ;;
             push)
               [[ "$ACTOR" != "github-actions[bot]" ]] && actionable=true
               ;;
             workflow_run)
               if [[ "$WORKFLOW_NAME" == "CI" && "$WORKFLOW_CONCLUSION" != "cancelled" ]]; then
-                if [[ "$WORKFLOW_CONCLUSION" != "success" || "$WORKFLOW_BRANCH" != "$DEFAULT_BRANCH" ]]; then
+                if [[ -n "$PR_BASE_REF" && "$PR_BASE_REF" != "$DEFAULT_BRANCH" ]]; then
+                  actionable=false
+                elif [[ "$WORKFLOW_CONCLUSION" != "success" || "$WORKFLOW_BRANCH" != "$DEFAULT_BRANCH" ]]; then
                   actionable=true
                 fi
               fi
@@ -77,7 +77,7 @@ jobs:
           esac
           echo "actionable=$actionable" >> "$GITHUB_OUTPUT"
           if [[ "$actionable" != "true" ]]; then
-            echo "::notice::GPTAuto Observer accepted a non-actionable product event as a successful no-op; no Executor will be scheduled."
+            echo "::notice::GPTAuto Observer accepted a non-actionable or auxiliary product event as a successful no-op; no Executor will be scheduled."
           fi
       - uses: actions/checkout@v4
         if: ${{ steps.ingress.outputs.actionable == 'true' }}
@@ -114,6 +114,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          EXECUTOR_ELIGIBLE=true
 
           if [[ "$EVENT_NAME" == "release" && -n "$RELEASE_TAG" ]]; then
             git fetch --tags --force origin
@@ -151,11 +152,25 @@ jobs:
             PR_MERGED="$(jq -r 'if .merged_at then "true" else "false" end' <<<"$pr_json")"
             MERGE_SHA="$(jq -r '.merge_commit_sha // ""' <<<"$pr_json")"
             PR_HEAD_SHA="$(jq -r '.head.sha // ""' <<<"$pr_json")"
+            PR_BASE_REF="$(jq -r '.base.ref // ""' <<<"$pr_json")"
+
+            if [[ -n "$PR_BASE_REF" && "$PR_BASE_REF" != "$DEFAULT_BRANCH" ]]; then
+              EXECUTOR_ELIGIBLE=false
+              echo "::notice::PR #$PR_NUMBER targets $PR_BASE_REF instead of $DEFAULT_BRANCH; treating it as auxiliary evidence with merge_authority=false."
+            fi
 
             if [[ -n "$PR_HEAD_SHA" ]]; then
-              PR_CI_RUN_ID="$(gh api "repos/$REPOSITORY/actions/runs?head_sha=$PR_HEAD_SHA&status=success&per_page=50" \
-                --jq '[.workflow_runs[] | select(.name == "CI" and .conclusion == "success")][0].id // empty' 2>/dev/null || true)"
-              [[ -n "$PR_CI_RUN_ID" ]] && PR_CI_CONCLUSION="success"
+              # Bind PR_CI to the latest CI pull_request run for this exact head.
+              # Never allow an older green rerun to mask a newer queued/running or
+              # failed generation on the same SHA.
+              pr_runs="$(gh api "repos/$REPOSITORY/actions/runs?head_sha=$PR_HEAD_SHA&per_page=100" 2>/dev/null || echo '{"workflow_runs":[]}')"
+              pr_ci_row="$(jq -c '[.workflow_runs[] | select(.name == "CI" and .event == "pull_request")] | sort_by(.created_at, .id) | last // {}' <<<"$pr_runs")"
+              PR_CI_RUN_ID="$(jq -r '.id // empty' <<<"$pr_ci_row")"
+              pr_ci_status="$(jq -r '.status // empty' <<<"$pr_ci_row")"
+              pr_ci_conclusion="$(jq -r '.conclusion // empty' <<<"$pr_ci_row")"
+              if [[ "$pr_ci_status" == "completed" && "$pr_ci_conclusion" == "success" ]]; then
+                PR_CI_CONCLUSION="success"
+              fi
             fi
             if [[ "$PR_MERGED" == "true" && -n "$MERGE_SHA" ]]; then
               MAIN_CI_RUN_ID="$(gh api "repos/$REPOSITORY/actions/runs?head_sha=$MERGE_SHA&status=success&per_page=50" \
@@ -163,9 +178,6 @@ jobs:
               [[ -n "$MAIN_CI_RUN_ID" ]] && MAIN_CI_CONCLUSION="success"
               RELEASE_RUN_ID="$(gh api "repos/$REPOSITORY/actions/runs?head_sha=$MERGE_SHA&status=success&per_page=50" \
                 --jq '[.workflow_runs[] | select(.name == "Release" and .conclusion == "success")][0].id // empty' 2>/dev/null || true)"
-              # A green Release workflow is process evidence only. Publication is
-              # terminal only when a GitHub Release published event (or Reconcile)
-              # proves a release artifact/tag for the merged commit.
             fi
           fi
 
@@ -191,35 +203,48 @@ jobs:
             --current-pr-head-sha "$PR_HEAD_SHA" > observer-result.json
           cat observer-result.json
           task_id="$(python -c 'import json;print(json.load(open("observer-result.json"))["task_id"])')"
+          generation="$(python -c 'import json;print(json.load(open("observer-result.json"))["generation"])')"
+          dispatch_head="${PR_HEAD_SHA:-$HEAD_SHA}"
           echo "task-id=$task_id" >> "$GITHUB_OUTPUT"
+          echo "generation=$generation" >> "$GITHUB_OUTPUT"
+          echo "head-sha=$dispatch_head" >> "$GITHUB_OUTPUT"
+          echo "executor-eligible=$EXECUTOR_ELIGIBLE" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/upload-gptauto-log
         if: ${{ steps.ingress.outputs.actionable == 'true' }}
         with:
           task-id: ${{ steps.capture.outputs.task-id }}
           retention-days: '30'
       - name: Dispatch canonical Executor handoff
-        if: ${{ steps.ingress.outputs.actionable == 'true' }}
+        if: ${{ steps.ingress.outputs.actionable == 'true' && steps.capture.outputs.executor-eligible == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           OBSERVER_RUN_ID: ${{ github.run_id }}
+          TASK_ID: ${{ steps.capture.outputs.task-id }}
+          GENERATION: ${{ steps.capture.outputs.generation }}
+          HEAD_SHA: ${{ steps.capture.outputs.head-sha }}
         shell: bash
         run: |
           gh api --method POST "repos/$REPOSITORY/dispatches" \
             -f event_type='gptauto_observation' \
-            -F "client_payload[observer_run_id]=$OBSERVER_RUN_ID"
-          echo "Explicit Executor handoff emitted for Observer run $OBSERVER_RUN_ID."
+            -F "client_payload[observer_run_id]=$OBSERVER_RUN_ID" \
+            -F "client_payload[task_id]=$TASK_ID" \
+            -F "client_payload[generation]=$GENERATION" \
+            -F "client_payload[head_sha]=$HEAD_SHA"
+          echo "Explicit Executor handoff emitted for task=$TASK_ID generation=$GENERATION head=$HEAD_SHA observer=$OBSERVER_RUN_ID."
       - name: Summary
         if: ${{ steps.ingress.outputs.actionable == 'true' }}
         env:
           TASK_ID: ${{ steps.capture.outputs.task-id }}
+          EXECUTOR_ELIGIBLE: ${{ steps.capture.outputs.executor-eligible }}
         run: |
           {
             echo "## GPTAuto repository observation"
             echo "- Task ID: \`$TASK_ID\`"
             echo "- Artifact: \`gptauto-$TASK_ID\`"
             echo "- Provenance: \`repository_observer\`"
-            echo "- PR/push/main-CI/release events are re-associated through the PR before TASK_ID generation."
-            echo "- A merged PR is VERIFY, not DONE; main-CI may be reconstructed from runs, but Release workflow success alone never proves publication."
-            echo "- DONE artifacts include completion.json: a single terminal receipt with merge, CI, release, gate, and DoD evidence."
+            echo "- Executor eligible: \`$EXECUTOR_ELIGIBLE\`"
+            echo "- PR CI evidence is the latest exact-head CI/pull_request run; older success cannot mask a newer run."
+            echo "- Non-default-base PRs are auxiliary evidence only and never receive autonomous merge authority."
+            echo "- A merged PR is VERIFY, not DONE; Release workflow success alone never proves publication."
           } >> "$GITHUB_STEP_SUMMARY"

@@ -7,13 +7,31 @@ class ConsumerTemplateTests(unittest.TestCase):
         text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_run:", text)
         self.assertIn("workflows: [CI]", text)
-        self.assertIn("Control-plane workflows are deliberately excluded", text)
         self.assertIn("gptauto_observation", text)
         self.assertIn("client_payload[observer_run_id]", text)
+        self.assertIn("client_payload[task_id]", text)
+        self.assertIn("client_payload[generation]", text)
+        self.assertIn("client_payload[head_sha]", text)
         self.assertIn("successful no-op", text)
         self.assertNotIn("workflows: [GPTAuto Observer", text)
         self.assertNotIn("workflows: [GPTAuto Executor", text)
         self.assertNotIn("workflows: [GPTAuto Reconcile", text)
+
+    def test_observer_binds_pr_ci_to_latest_exact_head_pull_request_run(self):
+        text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
+        self.assertIn('actions/runs?head_sha=$PR_HEAD_SHA&per_page=100', text)
+        self.assertIn('select(.name == "CI" and .event == "pull_request")', text)
+        self.assertIn('sort_by(.created_at, .id) | last // {}', text)
+        self.assertIn('pr_ci_status', text)
+        self.assertIn('pr_ci_conclusion', text)
+        self.assertNotIn('head_sha=$PR_HEAD_SHA&status=success', text)
+
+    def test_observer_marks_non_default_base_prs_auxiliary(self):
+        text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
+        self.assertIn('PR_BASE_REF', text)
+        self.assertIn('EXECUTOR_ELIGIBLE=false', text)
+        self.assertIn('merge_authority=false', text)
+        self.assertIn("steps.capture.outputs.executor-eligible == 'true'", text)
 
     def test_sync_installs_canonical_runtime_and_all_control_workflows(self):
         text = Path("consumer-template/gptauto-sync.yml").read_text(encoding="utf-8")
@@ -55,6 +73,16 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("Adopt externally merged completion lease", text)
         self.assertIn("Publish foreground completion guard", text)
         self.assertIn("EXIT_GUARD=DENY", text)
+
+    def test_executor_dedupes_by_task_head_and_waits_without_false_failure(self):
+        text = Path("consumer-template/gptauto-executor.yml").read_text(encoding="utf-8")
+        self.assertIn("client_payload.task_id", text)
+        self.assertIn("client_payload.head_sha", text)
+        self.assertIn("pending_runs", text)
+        self.assertIn("failed_runs", text)
+        self.assertIn("WAITING_GITHUB, not failure", text)
+        self.assertIn("Merge deferred", text)
+        self.assertIn('.allow_foreground_exit == false', text)
 
     def test_repair_pipeline_is_three_tier_head_guarded_and_credential_isolated(self):
         text = Path("consumer-template/gptauto-repair.yml").read_text(encoding="utf-8")
