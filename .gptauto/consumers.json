@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-10-01",
+  "consumers": [
+    {
+      "repository": "b8vipvip/GPTWork",
+      "status": "active",
+      "version": "v0.15.4",
+      "auto_sync": true
+    },
+    {
+      "repository": "b8vipvip/chat2api",
+      "status": "pending_sync_verification",
+      "auto_sync": true
+    },
+    {
+      "repository": "b8vipvip/qnbot",
+      "status": "pending_sync_verification",
+      "auto_sync": true
+    }
+  ]
+}
