@@ -2,27 +2,32 @@
 
 [中文](#中文) · [English](#english)
 
+> 当前版本：**v0.15.4**
+
 <a id="中文"></a>
 ## 中文（默认）
 
 GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程任务生命周期协议与参考实现。
 
-它解决的不是“自动跑几个 Actions”，而是同一个工程任务从用户目标开始，经过开发、PR、CI、修复、合并、main 验证、正式发布，直到拿到可验证的终态证据。在此之前，任务始终保持 ACTIVE。
+它解决的不是“自动跑几个 Actions”，而是让同一个工程任务从用户目标开始，经过开发、PR、CI、失败修复、重新验证、合并、main 验证，以及需要时的正式 Release，直到取得可验证的最终证据。在此之前，任务始终保持 ACTIVE。
 
 当前 canonical 协议的核心约束是：
 
 > **Evidence 可以来自多个执行器，Decision Authority 只能有一个。**
 
-### 核心原则
+## 核心原则
 
 **任务边界由最终目标决定，不由对话轮次、PR、某一次 CI 或某个 Workflow run 决定。**
 
-    GOAL → PLAN / DoD → EXECUTE → VERIFY → TERMINAL EVIDENCE → DONE
+```text
+GOAL → PLAN / DoD → EXECUTE → VERIFY → TERMINAL EVIDENCE → DONE
+```
 
 可选 Gate 包括：`INSPECT`、`IMPLEMENT`、`COMMIT`、`PR`、`PR_CI`、`MERGE`、`MAIN_CI`、`RELEASE`、`DEPLOY`、`RUNTIME_VERIFY`。
 
 例如：
-- “修改 README 并提交”不强制 Merge/Release。
+
+- “修改 README 并提交”不强制 Release。
 - “修复 Actions 直到 CI 全绿”以当前任务 CI 全绿为终态。
 - “把代码合并到 main”要求 Merge，并验证合并后的 main。
 - “修复并发布 v1.2.3 正式版”必须完成 PR → CI → Merge → main CI → Release → Release evidence，不能把“已合并”误判为 DONE。
@@ -31,15 +36,40 @@ GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程任务生命周
 
 ## Task Protocol v2：持久任务，短生命周期执行
 
-从 v0.14.0 开始，GPTAuto 不再把“阻止某一个 ChatGPT turn 退出”当成任务连续性的基础。核心不变量改为：
+从 v0.14.0 开始，GPTAuto 不再把“阻止某一个 ChatGPT turn 退出”当成任务连续性的基础。核心不变量是：
 
 > **Task lifecycle is persistent; ChatGPT executions are disposable.**
 
-`gptauto.task-state/v2` 是唯一终态权威。前台 ChatGPT、GPTWork、Observer、Executor、Reconcile 都不能独立决定 DONE。一次 ChatGPT execution 可以结束，但只要 canonical Task State 不是 `DONE`，工程任务仍然存活。
+`gptauto.task-state/v2` 是唯一终态权威。前台 ChatGPT、GPTWork、Observer、Executor、Repair、Reconcile 都不能独立决定 DONE。一次前台 execution 可以结束，但只要 canonical Task State 不是 `DONE`，工程任务仍然存活。
 
-Canonical 状态收敛为 `RUNNING`、`WAITING_GITHUB`、`REPAIR_REQUIRED`、`USER_ACTION_REQUIRED`、`DONE`。失败进入 `REPAIR_REQUIRED` 时，Task State 生成绑定 `task_id + generation + current head` 的 `continuation_key`。Continuation Host（例如 GPTWork）只消费这个状态：等待时不需要保持旧 turn；需要修复时恢复同一任务/PR；只有 `DONE` 才关闭任务。
+Canonical 状态收敛为：
 
-旧的 Exit Guard/Completion Lease 字段仅作为兼容投影，不再拥有第二套终态决策权。任务连续性来自持久 Task State + continuation，而不是某次对话是否仍存活。
+```text
+RUNNING
+WAITING_GITHUB
+REPAIR_REQUIRED
+USER_ACTION_REQUIRED
+DONE
+```
+
+失败进入 `REPAIR_REQUIRED` 时，Task State 生成绑定 `task_id + generation + current head` 的 continuation identity。Continuation Host（例如 GPTWork）只消费这个状态：等待时不需要保持旧 turn；需要修复时恢复同一任务/PR；只有 `DONE` 才关闭任务。
+
+旧 Exit Guard / Completion Lease 字段仅作为兼容投影，不再拥有第二套终态决策权。
+
+## v0.15.4：快速修复与 CI 快速路径
+
+v0.15.4 的重点是**缩短失败 → 修复 → 再验证 → 合并/发布的 wall-clock time，同时不放松最终验证门槛**。
+
+当前控制面已经实现：
+
+1. **Repair patch 先做 targeted validation。** 根据实际改动文件只运行对应语言/构建族的快速检查；局部验证失败时不 push，也不浪费完整 CI。
+2. **瞬时基础设施失败只重跑 failed jobs。** `ci_policy` 识别明确 transient evidence 后，只调用一次 `rerun-failed-jobs`，不会把已经成功的 matrix job 全部重跑。
+3. **新 HEAD 立即淘汰旧 HEAD。** PR `synchronize` 后，Observer 会取消旧提交上仍 queued/running 的产品 workflow run，避免 runner 为 superseded commit 继续工作。
+4. **短 CI 做事件合并。** `workflow_run: in_progress` 可以在 Observer 内短轮询，几十秒内即将结束的 CI 不必额外走一次 Observer → Executor 往返。
+5. **Executor 对等待中的 CI 使用有界短轮询。** merge gate 在最新 workflow 仍 queued/in_progress 时先短等，不把正常等待误判为失败。
+6. **5 分钟 watchdog 只是保险。** 它用于 GitHub 丢事件、审批恢复或控制面异常后的自愈；精确 HEAD 的 CI 正常 queued/running 时 watchdog 会跳过，不把 5 分钟周期当常规调度器。
+7. **三层 Repair。** Tier 1 确定性修复 → Tier 2 Copilot CLI → Tier 3 前台恢复；同一 generation 只允许一个 repair owner。
+8. **消费仓库可叠加产品侧快速路径。** 按文件选择 CI matrix、Cargo/npm/Python/Tauri/installer cache，以及让 Release 复用同一精确 merge SHA 的 main-CI artifact。GPTAuto 保留最终 full merge/release gate，不用“少跑检查”换取速度。
 
 ## Canonical 完整任务链路
 
@@ -47,9 +77,9 @@ Canonical 状态收敛为 `RUNNING`、`WAITING_GITHUB`、`REPAIR_REQUIRED`、`US
 用户最终目标
     │
     ▼
-1. 创建 Task + Completion Lease
+1. 创建 Task / canonical state
    task_id / repo / DoD / expected_version
-   release_required / phase=ACTIVE
+   release_required / generation / current head
     │
     ▼
 2. Foreground 执行开发
@@ -58,12 +88,14 @@ Canonical 状态收敛为 `RUNNING`、`WAITING_GITHUB`、`REPAIR_REQUIRED`、`US
     ▼
 3. Observer【只接收产品事件】
    PR / product CI / merge evidence
-   GPTAuto 控制面事件不得反馈进入 Observer
+   取消 superseded runs
+   合并短 in-progress CI 事件
     │
     ▼
-4. Orchestrator【唯一生命周期/调度决策权威】
+4. Orchestrator / Executor【唯一生命周期/调度决策权威】
     │
-    ├─ CI_RUNNING  → WAIT
+    ├─ CI_RUNNING  → WAIT / bounded poll
+    ├─ transient CI_FAILED → rerun failed jobs once
     ├─ CI_FAILED   → REPAIR_REQUIRED
     ├─ CI_GREEN    → MERGE
     ├─ MERGED      → POST_MERGE_VALIDATE
@@ -71,23 +103,25 @@ Canonical 状态收敛为 `RUNNING`、`WAITING_GITHUB`、`REPAIR_REQUIRED`、`US
     └─ DoD 全部满足 → DONE
     │
     ▼
-5. PR CI
+5. Repair（需要时）
+   Tier 1 deterministic
+      ↓ no patch
+   Tier 2 Copilot CLI
+      ↓ unavailable / unsafe / validation failed
+   Tier 3 foreground handoff
+      │
+      └─ patch → targeted validation → push → PR CI
     │
-    ├─ failure → 唯一 repair_owner 修复同一 PR → push → 回到验证
-    │
-    └─ success
-          │
-          ▼
+    ▼
 6. Merge main
-          │
-          ▼
-7. 验证 expected merge SHA 已进入 main
-          │
-          ▼
+    │
+    ▼
+7. Reconcile 显式验证 expected merge SHA
+    │
+    ▼
 8. Post-merge CI
     │
-    ├─ failure → recovery / repair → 重新验证
-    │
+    ├─ failure → recovery / repair
     └─ success
           │
           ▼
@@ -100,27 +134,193 @@ Canonical 状态收敛为 `RUNNING`、`WAITING_GITHUB`、`REPAIR_REQUIRED`、`US
     │                 ▼
     │          Release Proof Validator
     │          - GitHub Release 已 published
-    │          - tag 指向 expected main/merge SHA
-    │          - 必需 artifacts/assets 存在
-    │                 │
+    │          - tag 指向 expected merge SHA
+    │          - 必需 assets/artifacts 存在
+    │
     └────────┬────────┘
              ▼
-10. Terminal Evidence
-             │
-             ▼
-11. Completion Lease = DONE
-    terminal_done=true
-    allow_foreground_exit=true
-             │
-             ▼
-12. Foreground 才允许结束工程任务
+10. Terminal Evidence → DONE
 ```
 
-### 单一状态权威
+## 应用方法（消费仓库）
 
-Observer、Executor、Reconcile、Release 不允许分别维护一套“任务是否完成”的结论。它们只提交 evidence。
+下面是 v0.15.4 推荐的实际接入方式。
 
-Canonical Task State 由 Orchestrator 解释并进行唯一状态迁移，例如：
+### 1. 先准备产品 CI
+
+消费仓库至少要有一个真正验证产品代码的 workflow。
+
+推荐名称：
+
+```text
+CI
+```
+
+也兼容：
+
+```text
+Build and Test
+```
+
+Post-merge Reconcile 会显式 `workflow_dispatch` 这个产品验证 workflow，因此它必须支持：
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+```
+
+如果产品 workflow 不是 `CI` / `Build and Test`，设置 repository variable：
+
+```text
+GPTAUTO_POST_MERGE_WORKFLOW=<workflow name 或 .github/workflows/xxx.yml>
+```
+
+发布型任务还需要一个启用的 canonical workflow：
+
+```text
+Release
+```
+
+Release 必须发布真正的 GitHub Release evidence；仅 workflow 绿色或 tag 存在都不等于发布完成。
+
+### 2. Bootstrap Consumer Sync
+
+把 canonical 模板：
+
+```text
+consumer-template/gptauto-sync.yml
+```
+
+安装到消费仓库：
+
+```text
+.github/workflows/gptauto-sync.yml
+```
+
+第一次接入也可以直接把这些 managed paths 一次性复制到消费仓库：
+
+```text
+.github/gptauto/
+.github/actions/upload-gptauto-log/action.yml
+.github/workflows/gptauto-sync.yml
+.github/workflows/gptauto-observer.yml
+.github/workflows/gptauto-executor.yml
+.github/workflows/gptauto-repair.yml
+.github/workflows/gptauto-reconcile.yml
+```
+
+之后由 **GPTAuto Consumer Sync** 每小时检查 canonical GPTAuto；也可以在 Actions 页面手动运行 `workflow_dispatch`，选择：
+
+```text
+operation = sync
+```
+
+同步始终通过分支/PR 进入消费仓库，产品 CI 仍是安全门槛。
+
+### 3. 配置自动化凭据
+
+为了让 v0.15.4 的完整无人值守链路真正工作，推荐配置以下 repository secrets：
+
+**`GPTAUTO_SYNC_TOKEN`**
+
+用于 Consumer Sync 更新 `.github/workflows/`。建议使用只绑定当前仓库的 fine-grained token，并授予：
+
+```text
+Contents: Read and write
+Pull requests: Read and write
+Workflows: Read and write
+```
+
+没有这个 token 时，若 canonical 更新包含 workflow drift，Consumer Sync 会保持原子性：不把一半 runtime 更新写进仓库，而是明确提示 `Workflows write permission required`。
+
+**`GPTAUTO_EXECUTOR_TOKEN`**
+
+用于安全 merge / Reconcile 调度，以及 Repair patch 通过 targeted validation 后向同一 PR branch push。它必须能够更新当前仓库。GPTAuto Repair 不会退回使用 `GITHUB_TOKEN` 进行自动修复 push，因为 bot-authored PR 更新可能进入额外的 maintainer approval 状态。
+
+**`GPTAUTO_COPILOT_TOKEN`（可选）**
+
+Tier 2 Copilot CLI 的可选专用 token。未配置时模板会尝试使用 workflow 的 token 与 `copilot-requests: write` 权限；是否能实际调用 Copilot 仍取决于该账户/仓库当时可用的 Copilot entitlement/allowance。
+
+GPTAuto v0.15.4 不要求 `GPTAUTO_AI_API_KEY`，也不依赖 `openai/codex-action` 才能维持核心生命周期。
+
+### 4. 使用三层 Repair
+
+当产品 PR CI 失败时，标准路径是：
+
+```text
+CI failure
+   ↓
+ci_policy
+   ├─ 明确 transient → rerun failed jobs once
+   └─ 普通代码/测试失败
+          ↓
+Tier 1 deterministic repair
+          ↓ no patch
+Tier 2 Copilot CLI
+          ↓ no safe patch
+Tier 3 FOREGROUND_RECOVERY_REQUIRED
+```
+
+Tier 1 / Tier 2 生成 patch 后不会直接 push，而是先执行：
+
+```text
+python -m gptauto.validation
+```
+
+只有 targeted validation 通过、PR HEAD 仍与 repair lease 一致、且写凭据满足要求时，Apply job 才会 commit/push。push 后新的 PR HEAD 会重新触发产品 CI；旧 HEAD 的 queued/running run 会被取消。
+
+### 5. 在消费仓库启用产品侧快速 CI
+
+GPTAuto 的控制面优化不会替代产品仓库自己的 CI 设计。为了取得最大收益，建议消费仓库继续实现：
+
+```text
+changed-path classification
+→ 只运行受影响的 PR CI matrix
+→ dependency cache
+→ 最终 merge/main 保留完整验证
+→ main CI 针对精确 merge SHA 产出 release-ready artifact
+→ Release 校验 provenance/digest 后复用同 SHA artifact
+```
+
+这样 Repair 阶段可以快，而最终 Merge / Release 仍保持完整证据链。
+
+### 6. Host / GPTWork 的完成规则
+
+前台 Host 不允许把下面状态当作完成：
+
+```text
+PR 已提交
+CI queued/running
+Repair 已触发
+PR 已合并但 main CI 未验证
+Release workflow 已启动但 GitHub Release 未发布
+```
+
+只有 canonical state 给出：
+
+```text
+terminal_done = true
+allow_foreground_exit = true
+```
+
+才能关闭工程任务。
+
+如果当前前台 execution 被产品运行时中断，状态应保持可恢复，例如：
+
+```text
+SUSPENDED_AWAITING_HOST_RESUME
+```
+
+而不是伪装成 DONE 或声称“后台会继续”但没有持久 task state。
+
+## 单一状态权威
+
+Observer、Executor、Repair、Reconcile、Release 不允许分别维护一套“任务是否完成”的结论。它们只提交 evidence，由 canonical state 解释。
+
+示例：
 
 ```json
 {
@@ -133,7 +333,7 @@ Canonical Task State 由 Orchestrator 解释并进行唯一状态迁移，例如
   "generation": 7,
   "head_sha": "...",
   "merge_sha": "...",
-  "repair_owner": "foreground",
+  "repair_owner": "repair_pipeline",
   "ci": "success",
   "merge": "success",
   "post_merge_ci": "success",
@@ -143,57 +343,23 @@ Canonical Task State 由 Orchestrator 解释并进行唯一状态迁移，例如
 }
 ```
 
-task/head/generation 去重只是一道**幂等安全网**，不能成为主要调度机制，也不能与 Orchestrator 分享终态决策权。
+`task_id + generation + head_sha` 去重只是**幂等安全网**，不能与 Orchestrator 分享终态决策权。
 
-### Repair Owner：禁止双重修复权威
+## Repair Owner：禁止双重修复权威
 
-每个 generation 同时只能有一个 repair owner：
+每个 generation 同时只能有一个 repair owner。
 
-```text
-repair_owner = foreground
-```
-
-表示前台宿主必须修复同一 PR / 当前 HEAD 对应的失败，push 后重新进入验证。
-
-如果未来明确配置 autonomous AI provider，可以使用：
+自动修复链路中：
 
 ```text
-repair_owner = gptauto_ai
+repair_owner = repair_pipeline
 ```
 
-此时 foreground 不得同时修改同一 repair generation。
+Tier 1 / Tier 2 / Tier 3 都属于同一个 repair lease，而不是三套并行修复权威。
 
-没有 AI provider 时，`repair_request` 必须产生明确的 `FOREGROUND_RECOVERY_REQUIRED`，不能永久悬挂，也不能假装后台仍有人修复。
+如果已经进入 `FOREGROUND_RECOVERY_REQUIRED`，前台才接手当前 generation；新的 HEAD 会让旧 repair lease 自动 superseded。
 
-### 前台任务生命周期协议
-
-Foreground 不允许在下面这种状态正常结束：
-
-```text
-Completion Lease = ACTIVE
-terminal_done = false
-allow_foreground_exit = false
-```
-
-尤其禁止把：
-
-```text
-PR 已提交，CI 正在运行，我继续关注。
-```
-
-当成工程任务终态。
-
-GitHub Actions 本身不能重新唤醒一个已经结束的 ChatGPT turn。因此 Host/Bridge 必须在允许前台结束前重新读取 canonical task state。
-
-如果产品运行时确实迫使当前 turn 中断，应记录为类似：
-
-```text
-SUSPENDED_AWAITING_HOST_RESUME
-```
-
-而不是 DONE，也不能声称“后台继续盯着”。
-
-### Merge 不是发布完成
+## Merge 不是发布完成
 
 Release 型任务只有在所有要求的终态证据同时成立后才能 DONE：
 
@@ -207,96 +373,109 @@ AND required release assets exist
 AND no active repair/recovery generation remains
 ```
 
-“PR merged”、“Release workflow green”或“tag 存在”中的任何单项都不能释放 Completion Lease。
+“PR merged”、“Release workflow green”或“tag 存在”中的任何单项都不能释放任务。
 
-### 单向控制面
+## 单向控制面
 
-GPTAuto 控制面必须是单向的：
-
-```text
-产品事件 → Observer → Orchestrator/Executor → Reconcile → CI/Release → terminal evidence
-
-GPTAuto Observer / Executor / Reconcile / Release
-                       └── X ──> 不得反馈成新的 Observer 调度输入
-```
-
-Reconcile 是 post-merge authority，负责触发/验证 post-merge CI 和必要的 Release，并直接提交终态 evidence。
-
-v0.13.24 起，Observer 的 `workflow_run` ingress 只订阅产品 CI；GPTAuto 自身控制面 workflow 和 Release 不再形成 Observer → Executor → Reconcile 的自激循环。Reconcile 的 workflow catalog 仍是单一 discovery authority，但使用完整分页读取，避免 workflow 数量超过 100 时漏掉 Release。
-
-### Completion Lease
-
-只要最终目标没有满足：
+GPTAuto 控制面必须保持单向：
 
 ```text
-completion_lease = ACTIVE
-terminal_done = false
-allow_foreground_exit = false
+产品事件 → Observer → Executor → Repair/Reconcile → CI/Release → terminal evidence
+
+GPTAuto Observer / Executor / Repair / Reconcile
+                       └── X ──> 不得反馈成新的产品 Observer 调度输入
 ```
 
-只有真正取得最终 DoD evidence 后：
+Observer 只监听产品事件；GPTAuto 自身控制 workflow 不能形成 Observer → Executor → Reconcile 的自激循环。
+
+## 快速开始（GPTAuto 自身开发/验证）
+
+```bash
+python -m unittest discover -s tests -v
+python -m compileall -q gptauto
+python -m gptauto.cli init --goal "把代码合并到 main" --repo owner/repo --out task.json
+python -m gptauto.cli status task.json
+```
+
+v0.15.4 快速路径相关的自测主要覆盖：
 
 ```text
-completion_lease = DONE
-terminal_done = true
-allow_foreground_exit = true
+tests/test_validation.py   targeted validation / changed-language planning
+tests/test_templates.py    superseded cancellation / CI coalescing /
+                           failed-jobs-only retry / watchdog insurance /
+                           three-tier repair / credential isolation
 ```
 
-前台才能汇报任务完成。
+消费仓库默认审计日志位于：
 
-### 快速开始
+```text
+.gptauto/logs/<TASK_ID>/
+```
 
-    python -m unittest discover -s tests -v
-    python -m gptauto.cli init --goal "把代码合并到 main" --repo owner/repo --out task.json
-    python -m gptauto.cli status task.json
+包括：
 
-消费仓库可安装 canonical Consumer Sync。默认审计日志位于 `.gptauto/logs/<TASK_ID>/`，包括 `task.log`、`state.json`、`events.jsonl`、`summary.md`。
+```text
+task.log
+state.json
+events.jsonl
+summary.md
+```
 
-进一步协议与集成说明见：
+进一步说明：
+
 - `docs/PROTOCOL.md`
+- `docs/REPAIR_PIPELINE.md`
 - `docs/INTEGRATION.md`
+- `docs/CONSUMER_MANAGEMENT.md`
 - `docs/OBSERVABILITY.md`
+- `docs/V0.15.4.md`
+
+---
 
 <a id="english"></a>
-
 ## English
 
-### Task Protocol v2: persistent tasks, disposable executions
+GPTAuto is a persistent GitHub engineering-task lifecycle protocol. A task stays alive until its requested definition of done has terminal evidence; a PR, one successful job, or a merge alone is not necessarily DONE.
 
-Starting with v0.14.0, GPTAuto no longer treats preventing a particular ChatGPT turn from exiting as the basis of task continuity.
+### v0.15.4 fast path
 
-> **Task lifecycle is persistent; ChatGPT executions are disposable.**
+v0.15.4 reduces repair and CI wall-clock time without weakening terminal gates:
 
-`gptauto.task-state/v2` is the sole terminal authority. ChatGPT, GPTWork, Observer, Executor, and Reconcile do not independently decide DONE. A foreground execution may end while the engineering task remains alive.
+- repair patches run targeted validation before push/full CI;
+- clearly transient failures get one failed-jobs-only retry;
+- PR head changes cancel queued/running runs for superseded heads;
+- short in-progress CI is coalesced before an unnecessary Observer → Executor hop;
+- Executor performs bounded short polling instead of treating normal queued/running CI as failure;
+- the five-minute watchdog is recovery insurance, not the normal scheduler;
+- repair is one lease with deterministic → Copilot CLI → foreground fallback tiers;
+- consumer repositories can add path-selective PR matrices, dependency caches, and exact-SHA main-CI artifact reuse for Release while keeping a full final gate.
 
-The canonical lifecycle converges on `RUNNING`, `WAITING_GITHUB`, `REPAIR_REQUIRED`, `USER_ACTION_REQUIRED`, and `DONE`. A repair transition creates a continuation identity bound to `task_id + generation + current head`. A Continuation Host such as GPTWork waits without keeping an old turn alive, resumes the same task/PR when continuation is required, and closes the task only on canonical DONE.
+### Consumer installation
 
-Legacy Exit Guard and Completion Lease fields are compatibility projections only. They are not additional terminal authorities.
+1. Provide a product validation workflow named `CI` or `Build and Test` with `pull_request`, default-branch `push`, and `workflow_dispatch`. If you use another workflow, set repository variable `GPTAUTO_POST_MERGE_WORKFLOW`.
+2. Bootstrap `consumer-template/gptauto-sync.yml` as `.github/workflows/gptauto-sync.yml`, or copy all GPTAuto managed paths once.
+3. For reliable automatic workflow updates, configure `GPTAUTO_SYNC_TOKEN` with repository-scoped Contents/Pull requests/Workflows write permissions.
+4. Configure `GPTAUTO_EXECUTOR_TOKEN` when you want autonomous repair patches to be pushed back to the same PR branch.
+5. `GPTAUTO_COPILOT_TOKEN` is optional; Copilot CLI availability remains subject to the connected account/repository entitlement or allowance.
+6. Run **GPTAuto Consumer Sync** with `operation=sync`. Future canonical updates are proposed through CI-gated sync PRs.
+7. For release tasks, provide an enabled `Release` workflow that publishes verifiable GitHub Release evidence for the exact expected merge SHA.
 
+### Repair lifecycle
 
+```text
+product CI failure
+  → transient policy: rerun failed jobs once, or
+  → Tier 1 deterministic repair
+  → Tier 2 Copilot CLI
+  → Tier 3 foreground recovery
+  → targeted validation
+  → head revalidation
+  → push same PR
+  → new PR CI
+  → merge
+  → explicit post-merge validation
+  → optional Release proof
+  → DONE
+```
 
-
-### v0.14.1：显式 Post-merge 调度
-
-v0.14.1 收敛 post-merge 链路：Reconcile 不再等待一个“可能由 merge push 自动产生”的产品 CI。由 GitHub Actions `GITHUB_TOKEN` 完成的 merge 不保证再次触发 workflow，因此这种轮询不是可靠协议。
-
-现在 Reconcile 从 workflow catalog 解析唯一产品验证工作流（默认 `CI` / `Build and Test`，非标准名称可显式配置），确认 default branch 仍精确指向目标 merge SHA，然后通过 `workflow_dispatch` **主动启动一次** post-merge validation，记录该 run ID，并只验证这个 run。若工作流不可 dispatch、main 已移动或配置不明确，则立即产生明确恢复错误，不再空转 300 秒等待不存在的 run。
-
-GitHub 的 `workflow_run` 过滤能力只能按 workflow 名称和完成事件筛选，不能按 conclusion/event 在 workflow 创建前过滤。因此少量由 job-level `if:` 产生的 `Skipped` run 属于 GitHub 触发模型的可见副产物；GPTAuto 的目标是不让它们形成控制面自激或重复决策。v0.14.1 不用“把 Skipped 伪装成 success”的方式隐藏它们。
-
-### v0.14.1: explicit post-merge scheduling
-
-Reconcile no longer polls for a product CI run that may never be created after a token-driven merge. It resolves the canonical product validation workflow, verifies that the default branch still equals the target merge SHA, explicitly dispatches exactly one `workflow_dispatch` run, records its run ID, and validates only that run. Non-dispatchable or ambiguous workflows fail immediately with actionable recovery evidence instead of a 300-second registration poll.
-
-A small number of visible `Skipped` runs can still be created by GitHub because `workflow_run` cannot pre-filter on conclusion/event before the workflow run exists. They are acceptable only as non-authoritative trigger artifacts: they must not create control-plane feedback or duplicate lifecycle decisions.
-
-
-### v0.14.2：显式 Observer → Executor 调度
-
-v0.14.2 继续收敛控制面。Executor 不再订阅 `GPTAuto Observer` 的 `workflow_run` 完成事件；Observer 只有在捕获到可执行产品证据后，才通过唯一的 `repository_dispatch:gptauto_observation` 调度 Executor。
-
-对于 GitHub 必然先创建、之后才能判断是否应忽略的 `workflow_run`（例如 Reconcile 主动启动且成功的 main CI），Observer 在 job 内做 ingress 分类：非 actionable 事件以 **successful no-op** 结束，不再在 Actions 顶层留下 Skipped Observer；同时不会创建 Executor。这样去掉的是无效调度边，而不是把 Skipped 改名成 success 后继续执行控制链。
-
-### v0.14.2: explicit Observer → Executor scheduling
-
-Executor no longer wakes from every Observer workflow completion. Observer captures actionable product evidence and then emits one explicit `repository_dispatch:gptauto_observation` scheduler edge carrying the Observer run ID. Non-actionable CI completion events are classified inside Observer and finish as a successful no-op, with no Executor scheduled. This removes the visible skipped-control-run cascade while preserving one canonical lifecycle authority.
+`gptauto.task-state/v2` remains the sole terminal authority. Foreground executions are disposable; the task lifecycle is persistent.
