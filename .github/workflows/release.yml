@@ -79,8 +79,15 @@ jobs:
         run: |
           set -Eeuo pipefail
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::Consumer release fan-out requires GPTAUTO_CONSUMER_TOKEN or GPTAUTO_SYNC_TOKEN. The token needs Contents: write on registered consumers, plus Actions: write for one-time bootstrap of legacy sync workflows."
-            exit 1
+            {
+              echo "## GPTAuto consumer fan-out"
+              echo "- Release: $TAG"
+              echo "- Immediate cross-repository dispatch: deferred"
+              echo "- Reason: GPTAUTO_CONSUMER_TOKEN / GPTAUTO_SYNC_TOKEN is not configured in GPTAuto."
+              echo "- Recovery: each consumer's scheduled GPTAuto Consumer Sync remains authoritative and will converge through a PR/CI gate."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::No cross-repository fan-out token is configured; release remains valid and consumer scheduled sync is the recovery path."
+            exit 0
           fi
 
           python - <<'PY' > "$RUNNER_TEMP/gptauto-consumer-dispatch.tsv"

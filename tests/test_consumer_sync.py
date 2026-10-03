@@ -28,14 +28,14 @@ class ConsumerSyncTests(unittest.TestCase):
                 {"repository": "owner/a", "status": "active", "auto_sync": True},
                 {"repository": "owner/b", "status": "disabled", "auto_sync": True},
             ],
-            "v0.15.5",
+            "v0.15.6",
         )
         self.assertEqual(len(plan), 1)
         self.assertEqual(plan[0].repository, "owner/a")
         self.assertEqual(plan[0].event, "gptauto_release_published")
-        self.assertEqual(plan[0].version, "v0.15.5")
+        self.assertEqual(plan[0].version, "v0.15.6")
 
-    def test_release_workflow_fans_out_and_bootstraps_legacy_consumers(self):
+    def test_release_workflow_fans_out_and_degrades_to_scheduled_recovery(self):
         text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertIn("Fan out release to registered consumers", text)
         self.assertIn("gptauto.consumer_sync.release_dispatch", text)
@@ -45,6 +45,9 @@ class ConsumerSyncTests(unittest.TestCase):
         self.assertIn("Legacy consumer listener detected", text)
         self.assertIn("gh workflow run gptauto-sync.yml", text)
         self.assertIn("steps.publish.outputs.created == 'true'", text)
+        self.assertIn("Immediate cross-repository dispatch: deferred", text)
+        self.assertIn("scheduled GPTAuto Consumer Sync remains authoritative", text)
+        self.assertIn("exit 0", text)
 
     def test_consumer_sync_accepts_exact_release_dispatch(self):
         text = Path("consumer-template/gptauto-sync.yml").read_text(encoding="utf-8")
@@ -55,12 +58,17 @@ class ConsumerSyncTests(unittest.TestCase):
         self.assertIn('[[ "$SOURCE_REPOSITORY" == "b8vipvip/GPTAuto" ]]', text)
         self.assertIn('git clone --depth 1 --branch "$REQUESTED_VERSION"', text)
         self.assertIn('"v$ver" != "$REQUESTED_VERSION"', text)
+        self.assertIn("schedule:", text)
 
-    def test_status_workflow_scans_real_installed_versions_and_writes_issue(self):
+    def test_status_workflow_scans_public_consumers_without_cross_repo_token(self):
         text = Path(".github/workflows/consumer-sync-status.yml").read_text(encoding="utf-8")
         self.assertIn("Consumer Sync Status", text)
+        self.assertIn("CROSS_REPO_TOKEN", text)
+        self.assertIn("raw.githubusercontent.com", text)
+        self.assertIn("api.github.com", text)
         self.assertIn(".github/gptauto/VERSION", text)
-        self.assertIn("statusCheckRollup", text)
+        self.assertIn("check-runs?per_page=100", text)
+        self.assertIn("public read-only GitHub endpoints", text)
         self.assertIn("gptauto-consumer-sync-status", text)
         self.assertIn("GPTAuto consumer sync status", text)
         self.assertIn("gh issue edit", text)
