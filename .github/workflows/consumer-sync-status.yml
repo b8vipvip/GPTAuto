@@ -24,14 +24,33 @@ jobs:
           python-version: '3.12'
       - name: Scan registered consumers
         env:
-          GH_TOKEN: ${{ secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN }}
+          CROSS_REPO_TOKEN: ${{ secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN }}
         shell: bash
         run: |
           set -Eeuo pipefail
-          if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::Consumer status scan requires GPTAUTO_CONSUMER_TOKEN or GPTAUTO_SYNC_TOKEN with read access to every registered consumer repository."
-            exit 1
-          fi
+
+          api_get() {
+            local url="$1"
+            if [[ -n "${CROSS_REPO_TOKEN:-}" ]]; then
+              curl -fsSL \
+                -H "Authorization: Bearer $CROSS_REPO_TOKEN" \
+                -H 'Accept: application/vnd.github+json' \
+                "https://api.github.com/$url"
+            else
+              curl -fsSL \
+                -H 'Accept: application/vnd.github+json' \
+                "https://api.github.com/$url"
+            fi
+          }
+
+          raw_get() {
+            local url="$1"
+            if [[ -n "${CROSS_REPO_TOKEN:-}" ]]; then
+              curl -fsSL -H "Authorization: Bearer $CROSS_REPO_TOKEN" "$url"
+            else
+              curl -fsSL "$url"
+            fi
+          }
 
           target_version="$(python - <<'PY'
           import tomllib
@@ -53,6 +72,10 @@ jobs:
             echo '# GPTAuto consumer sync status'
             echo
             echo "Target release: \`$target_tag\`"
+            if [[ -z "${CROSS_REPO_TOKEN:-}" ]]; then
+              echo
+              echo '> Cross-repository token is not configured; this scan is using public read-only GitHub endpoints.'
+            fi
             echo
             echo '| Repository | State | Installed | PR |'
             echo '|---|---|---|---|'
@@ -60,21 +83,34 @@ jobs:
 
           while IFS= read -r repository; do
             [[ -n "$repository" ]] || continue
-            default_branch="$(gh api "repos/$repository" --jq '.default_branch')"
-            installed="$(gh api "repos/$repository/contents/.github/gptauto/VERSION?ref=$default_branch" --jq '.content' 2>/dev/null | base64 --decode 2>/dev/null | tr -d '\r\n' || true)"
+            repo_json="$(api_get "repos/$repository")"
+            default_branch="$(jq -r '.default_branch' <<<"$repo_json")"
+            installed="$(raw_get "https://raw.githubusercontent.com/$repository/$default_branch/.github/gptauto/VERSION" 2>/dev/null | tr -d '\r\n' || true)"
             sync_branch="chore/gptauto-sync-v$target_version"
-            pr_json="$(gh pr list --repo "$repository" --head "$sync_branch" --state all --limit 1 --json number,state,mergedAt,url,statusCheckRollup 2>/dev/null || printf '[]')"
+            owner="${repository%%/*}"
+            encoded_head="$(python - "$owner:$sync_branch" <<'PY'
+          import sys, urllib.parse
+          print(urllib.parse.quote(sys.argv[1], safe=''))
+          PY
+          )"
+            pr_json="$(api_get "repos/$repository/pulls?state=all&head=$encoded_head&per_page=1" 2>/dev/null || printf '[]')"
             pr_number="$(jq -r '.[0].number // empty' <<<"$pr_json")"
             pr_state="$(jq -r '.[0].state // empty' <<<"$pr_json")"
-            pr_merged_at="$(jq -r '.[0].mergedAt // empty' <<<"$pr_json")"
-            pr_url="$(jq -r '.[0].url // empty' <<<"$pr_json")"
+            pr_merged_at="$(jq -r '.[0].merged_at // empty' <<<"$pr_json")"
+            pr_url="$(jq -r '.[0].html_url // empty' <<<"$pr_json")"
+            pr_head_sha="$(jq -r '.[0].head.sha // empty' <<<"$pr_json")"
 
             state=registered
             if [[ "$installed" == "$target_version" ]]; then
               state=merged
-            elif [[ -n "$pr_number" && "$pr_state" == "OPEN" ]]; then
-              pending="$(jq '[.[0].statusCheckRollup[]? | select((.status // "") != "COMPLETED")] | length' <<<"$pr_json")"
-              failed="$(jq '[.[0].statusCheckRollup[]? | select((.conclusion // "") != "" and (.conclusion != "SUCCESS") and (.conclusion != "NEUTRAL") and (.conclusion != "SKIPPED"))] | length' <<<"$pr_json")"
+            elif [[ -n "$pr_number" && "$pr_state" == "open" ]]; then
+              pending=0
+              failed=0
+              if [[ -n "$pr_head_sha" ]]; then
+                checks="$(api_get "repos/$repository/commits/$pr_head_sha/check-runs?per_page=100" 2>/dev/null || printf '{"check_runs":[]}')"
+                pending="$(jq '[.check_runs[]? | select(.status != "completed")] | length' <<<"$checks")"
+                failed="$(jq '[.check_runs[]? | select(.status == "completed" and (.conclusion != "success") and (.conclusion != "neutral") and (.conclusion != "skipped"))] | length' <<<"$checks")"
+              fi
               if [[ "$failed" -gt 0 ]]; then
                 state=failed
               elif [[ "$pending" -gt 0 ]]; then
