@@ -1,0 +1,131 @@
+name: Consumer Sync Status
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: gptauto-consumer-sync-status
+  cancel-in-progress: true
+jobs:
+  scan:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Scan registered consumers
+        env:
+          GH_TOKEN: ${{ secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::Consumer status scan requires GPTAUTO_CONSUMER_TOKEN or GPTAUTO_SYNC_TOKEN with read access to every registered consumer repository."
+            exit 1
+          fi
+
+          target_version="$(python - <<'PY'
+          import tomllib
+          with open('pyproject.toml','rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          PY
+          )"
+          target_tag="v$target_version"
+
+          python - <<'PY' > "$RUNNER_TEMP/gptauto-consumers.tsv"
+          from gptauto.consumer_sync.registry import ConsumerRegistry
+          for item in ConsumerRegistry('.gptauto/consumers.json').sync_candidates():
+              print(item.repository)
+          PY
+
+          printf '[]\n' > "$RUNNER_TEMP/consumer-status.json"
+          {
+            echo '<!-- gptauto-consumer-status -->'
+            echo '# GPTAuto consumer sync status'
+            echo
+            echo "Target release: \`$target_tag\`"
+            echo
+            echo '| Repository | State | Installed | PR |'
+            echo '|---|---|---|---|'
+          } > "$RUNNER_TEMP/consumer-status.md"
+
+          while IFS= read -r repository; do
+            [[ -n "$repository" ]] || continue
+            default_branch="$(gh api "repos/$repository" --jq '.default_branch')"
+            installed="$(gh api "repos/$repository/contents/.github/gptauto/VERSION?ref=$default_branch" --jq '.content' 2>/dev/null | base64 --decode 2>/dev/null | tr -d '\r\n' || true)"
+            sync_branch="chore/gptauto-sync-v$target_version"
+            pr_json="$(gh pr list --repo "$repository" --head "$sync_branch" --state all --limit 1 --json number,state,mergedAt,url,statusCheckRollup 2>/dev/null || printf '[]')"
+            pr_number="$(jq -r '.[0].number // empty' <<<"$pr_json")"
+            pr_state="$(jq -r '.[0].state // empty' <<<"$pr_json")"
+            pr_merged_at="$(jq -r '.[0].mergedAt // empty' <<<"$pr_json")"
+            pr_url="$(jq -r '.[0].url // empty' <<<"$pr_json")"
+
+            state=registered
+            if [[ "$installed" == "$target_version" ]]; then
+              state=merged
+            elif [[ -n "$pr_number" && "$pr_state" == "OPEN" ]]; then
+              pending="$(jq '[.[0].statusCheckRollup[]? | select((.status // "") != "COMPLETED")] | length' <<<"$pr_json")"
+              failed="$(jq '[.[0].statusCheckRollup[]? | select((.conclusion // "") != "" and (.conclusion != "SUCCESS") and (.conclusion != "NEUTRAL") and (.conclusion != "SKIPPED"))] | length' <<<"$pr_json")"
+              if [[ "$failed" -gt 0 ]]; then
+                state=failed
+              elif [[ "$pending" -gt 0 ]]; then
+                state=ci_running
+              else
+                state=pr_created
+              fi
+            elif [[ -n "$pr_number" && -n "$pr_merged_at" ]]; then
+              state=failed
+            fi
+
+            tmp_json="$(mktemp)"
+            jq \
+              --arg repository "$repository" \
+              --arg state "$state" \
+              --arg version "$target_tag" \
+              --arg installed "$installed" \
+              --argjson pr "${pr_number:-null}" \
+              '. + [{repository:$repository,state:$state,version:$version,installed_version:$installed,pr:$pr}]' \
+              "$RUNNER_TEMP/consumer-status.json" > "$tmp_json"
+            mv "$tmp_json" "$RUNNER_TEMP/consumer-status.json"
+
+            pr_cell='-'
+            if [[ -n "$pr_number" ]]; then
+              pr_cell="[#$pr_number]($pr_url)"
+            fi
+            installed_cell="${installed:-not-installed}"
+            echo "| \`$repository\` | \`$state\` | \`$installed_cell\` | $pr_cell |" >> "$RUNNER_TEMP/consumer-status.md"
+          done < "$RUNNER_TEMP/gptauto-consumers.tsv"
+
+          echo >> "$RUNNER_TEMP/consumer-status.md"
+          echo "Updated by workflow run \`$GITHUB_RUN_ID\`." >> "$RUNNER_TEMP/consumer-status.md"
+          cat "$RUNNER_TEMP/consumer-status.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload status snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: gptauto-consumer-sync-status
+          path: ${{ runner.temp }}/consumer-status.json
+          retention-days: 14
+
+      - name: Write status back to tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          marker='<!-- gptauto-consumer-status -->'
+          issue="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$marker in:body" --json number --jq '.[0].number // empty')"
+          if [[ -n "$issue" ]]; then
+            gh issue edit "$issue" --repo "$GITHUB_REPOSITORY" --title 'GPTAuto consumer sync status' --body-file "$RUNNER_TEMP/consumer-status.md"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title 'GPTAuto consumer sync status' --body-file "$RUNNER_TEMP/consumer-status.md"
+          fi
