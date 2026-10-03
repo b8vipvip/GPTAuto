@@ -79,7 +79,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::Consumer release fan-out requires GPTAUTO_CONSUMER_TOKEN or GPTAUTO_SYNC_TOKEN with Contents: write access to every registered consumer repository."
+            echo "::error::Consumer release fan-out requires GPTAUTO_CONSUMER_TOKEN or GPTAUTO_SYNC_TOKEN. The token needs Contents: write on registered consumers, plus Actions: write for one-time bootstrap of legacy sync workflows."
             exit 1
           fi
 
@@ -98,8 +98,16 @@ jobs:
           PY
 
           dispatched=0
+          bootstrapped=0
           while IFS=$'\t' read -r repository event version; do
             [[ -n "$repository" ]] || continue
+
+            sync_workflow="$(gh api "repos/$repository/contents/.github/workflows/gptauto-sync.yml" --jq '.content' 2>/dev/null | base64 --decode 2>/dev/null || true)"
+            has_release_listener=false
+            if grep -q '^  repository_dispatch:' <<<"$sync_workflow"; then
+              has_release_listener=true
+            fi
+
             payload="$(jq -nc \
               --arg event "$event" \
               --arg version "$version" \
@@ -109,6 +117,17 @@ jobs:
             echo "Dispatching $event $version -> $repository"
             gh api --method POST "repos/$repository/dispatches" --input - <<<"$payload"
             dispatched=$((dispatched + 1))
+
+            if [[ "$has_release_listener" != "true" ]]; then
+              echo "Legacy consumer listener detected; bootstrapping with workflow_dispatch -> $repository"
+              gh workflow run gptauto-sync.yml --repo "$repository" -f operation=sync
+              bootstrapped=$((bootstrapped + 1))
+            fi
           done < "$RUNNER_TEMP/gptauto-consumer-dispatch.tsv"
 
-          echo "Dispatched $TAG to $dispatched registered consumers." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## GPTAuto consumer fan-out"
+            echo "- Release: $TAG"
+            echo "- repository_dispatch requests: $dispatched"
+            echo "- legacy workflow_dispatch bootstraps: $bootstrapped"
+          } >> "$GITHUB_STEP_SUMMARY"
