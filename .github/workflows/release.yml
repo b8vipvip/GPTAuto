@@ -46,6 +46,7 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: python -m compileall -q gptauto
       - name: Publish exact main version once
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -55,6 +56,7 @@ jobs:
           set -Eeuo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; canonical version is already published."
+            echo "created=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
@@ -65,3 +67,67 @@ jobs:
             git push origin "refs/tags/$TAG"
           fi
           gh release create "$TAG" --verify-tag --title "GPTAuto $TAG" --generate-notes --target "$SHA"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+      - name: Fan out release to registered consumers
+        if: steps.publish.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::Consumer release fan-out requires GPTAUTO_CONSUMER_TOKEN or GPTAUTO_SYNC_TOKEN. The token needs Contents: write on registered consumers, plus Actions: write for one-time bootstrap of legacy sync workflows."
+            exit 1
+          fi
+
+          python - <<'PY' > "$RUNNER_TEMP/gptauto-consumer-dispatch.tsv"
+          from gptauto.consumer_sync.registry import ConsumerRegistry
+          from gptauto.consumer_sync.release_dispatch import build_release_dispatch_plan
+          import os
+
+          registry = ConsumerRegistry('.gptauto/consumers.json')
+          plan = build_release_dispatch_plan(
+              [item.__dict__ for item in registry.sync_candidates()],
+              os.environ['TAG'],
+          )
+          for item in plan:
+              print(f"{item.repository}\t{item.event}\t{item.version}")
+          PY
+
+          dispatched=0
+          bootstrapped=0
+          while IFS=$'\t' read -r repository event version; do
+            [[ -n "$repository" ]] || continue
+
+            sync_workflow="$(gh api "repos/$repository/contents/.github/workflows/gptauto-sync.yml" --jq '.content' 2>/dev/null | base64 --decode 2>/dev/null || true)"
+            has_release_listener=false
+            if grep -q '^  repository_dispatch:' <<<"$sync_workflow"; then
+              has_release_listener=true
+            fi
+
+            payload="$(jq -nc \
+              --arg event "$event" \
+              --arg version "$version" \
+              --arg source_repository "$SOURCE_REPOSITORY" \
+              --arg source_sha "$SOURCE_SHA" \
+              '{event_type:$event,client_payload:{version:$version,source_repository:$source_repository,source_sha:$source_sha}}')"
+            echo "Dispatching $event $version -> $repository"
+            gh api --method POST "repos/$repository/dispatches" --input - <<<"$payload"
+            dispatched=$((dispatched + 1))
+
+            if [[ "$has_release_listener" != "true" ]]; then
+              echo "Legacy consumer listener detected; bootstrapping with workflow_dispatch -> $repository"
+              gh workflow run gptauto-sync.yml --repo "$repository" -f operation=sync
+              bootstrapped=$((bootstrapped + 1))
+            fi
+          done < "$RUNNER_TEMP/gptauto-consumer-dispatch.tsv"
+
+          {
+            echo "## GPTAuto consumer fan-out"
+            echo "- Release: $TAG"
+            echo "- repository_dispatch requests: $dispatched"
+            echo "- legacy workflow_dispatch bootstraps: $bootstrapped"
+          } >> "$GITHUB_STEP_SUMMARY"
