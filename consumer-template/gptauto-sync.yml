@@ -27,11 +27,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GPTAUTO_GITHUB_TOKEN || secrets.GPTAUTO_SYNC_TOKEN || github.token }}
+          token: ${{ secrets.GPTAUTO_GITHUB_TOKEN || secrets.GPTAUTO_SYNC_TOKEN || secrets.GPTAUTO_EXECUTOR_TOKEN || github.token }}
       - name: Manage canonical GPTAuto runtime
         env:
-          GH_TOKEN: ${{ secrets.GPTAUTO_GITHUB_TOKEN || secrets.GPTAUTO_SYNC_TOKEN || github.token }}
-          HAS_GPTAUTO_WRITE_TOKEN: ${{ secrets.GPTAUTO_GITHUB_TOKEN != '' || secrets.GPTAUTO_SYNC_TOKEN != '' }}
+          GH_TOKEN: ${{ secrets.GPTAUTO_GITHUB_TOKEN || secrets.GPTAUTO_SYNC_TOKEN || secrets.GPTAUTO_EXECUTOR_TOKEN || github.token }}
+          HAS_GPTAUTO_WRITE_TOKEN: ${{ secrets.GPTAUTO_GITHUB_TOKEN != '' || secrets.GPTAUTO_SYNC_TOKEN != '' || secrets.GPTAUTO_EXECUTOR_TOKEN != '' }}
           OPERATION: ${{ github.event_name == 'workflow_dispatch' && inputs.operation || 'sync' }}
           REQUESTED_VERSION: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.version || '' }}
           SOURCE_REPOSITORY: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.source_repository || '' }}
