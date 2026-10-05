@@ -49,7 +49,7 @@ b8vipvip/GPTAuto/consumer-template/gptauto-sync.yml
 
 ### 更新
 
-正常情况下不需要手工更新。`GPTAuto Consumer Sync` 每小时检查 canonical GPTAuto；有变化时创建/刷新一个同步 PR。也可以手工运行：
+正常情况下不需要手工更新。**只有 GPTAuto 发布新版本时**，canonical Release 才会向已注册消费仓库发送一次同步事件，创建/刷新同步 PR，并等待消费仓库 CI、合并以及默认分支 `VERSION` 全部升级成功。升级完成后不会继续定时检查版本。也可以手工运行：
 
 ```text
 Actions → GPTAuto Consumer Sync → Run workflow → operation=sync
