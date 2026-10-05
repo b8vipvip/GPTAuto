@@ -24,9 +24,10 @@ b8vipvip/GPTAuto/consumer-template/gptauto-sync.yml
 
 然后在目标仓库配置需要的 secrets：
 
-- `GPTAUTO_SYNC_TOKEN`：用于同步/删除 `.github/workflows/*`。建议 fine-grained PAT，仅授予该目标仓库，Repository permissions 至少包含 **Contents: Read and write**、**Pull requests: Read and write**、**Workflows: Read and write**。
-- `GPTAUTO_COPILOT_TOKEN`：可选但推荐，用于 Tier 2 Copilot CLI。个人 GitHub Free 账户应使用带 **Copilot Requests** account permission 的 fine-grained PAT。
-- `GPTAUTO_EXECUTOR_TOKEN`：仅在目标仓库默认 `GITHUB_TOKEN` 无法完成 Executor 的写操作时才需要；没有明确需要时不要额外扩大权限。
+- `GPTAUTO_GITHUB_TOKEN`：统一用于 Consumer Sync、Executor、Repair push、PR/merge 与 Reconcile。建议使用 fine-grained PAT，仅授予需要管理的仓库；Repository permissions 至少包含 **Contents: Read and write**、**Pull requests: Read and write**、**Workflows: Read and write**、**Actions: Read and write**、**Checks: Read**。
+- `GPTAUTO_COPILOT_TOKEN`：可选但推荐独立配置，仅用于 Tier 2 Copilot CLI；需要 **Copilot Requests** account permission。
+
+从 v0.15.10 起，新安装只需要以上两个逻辑 Token。旧的 `GPTAUTO_SYNC_TOKEN`、`GPTAUTO_EXECUTOR_TOKEN` 与 canonical 仓库中的 `GPTAUTO_CONSUMER_TOKEN` 继续作为兼容回退读取，方便现有仓库渐进迁移。
 
 首次安装后：
 
@@ -55,7 +56,7 @@ b8vipvip/GPTAuto/consumer-template/gptauto-sync.yml
 Actions → GPTAuto Consumer Sync → Run workflow → operation=sync
 ```
 
-同步是原子的：如果 canonical 版本包含 workflow 变化而 `GPTAUTO_SYNC_TOKEN` 缺少 Workflows write，Sync 不会只更新一部分文件或错误提升 VERSION，而会留下明确的阻塞 issue。
+同步是原子的：如果 canonical 版本包含 workflow 变化而 `GPTAUTO_GITHUB_TOKEN`（或兼容的旧 `GPTAUTO_SYNC_TOKEN`）缺少 Workflows write，Sync 不会只更新一部分文件或错误提升 VERSION，而会留下明确的阻塞 issue。
 
 ### 卸载
 
@@ -80,7 +81,7 @@ chore/gptauto-uninstall
 - `.gptauto/repair-rules.json` 等仓库自定义策略；
 - Repository secrets。
 
-确定不再使用 GPTAuto 后，可在仓库 Settings 中手工删除仅供 GPTAuto 使用的 `GPTAUTO_COPILOT_TOKEN`、`GPTAUTO_SYNC_TOKEN`、`GPTAUTO_EXECUTOR_TOKEN`。
+确定不再使用 GPTAuto 后，可在仓库 Settings 中手工删除 `GPTAUTO_GITHUB_TOKEN`、`GPTAUTO_COPILOT_TOKEN`，以及迁移期遗留的 `GPTAUTO_SYNC_TOKEN`、`GPTAUTO_EXECUTOR_TOKEN`。
 
 ### 最便捷的管理方式
 
