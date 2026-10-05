@@ -2,7 +2,7 @@
 
 [中文](#中文) · [English](#english)
 
-> 当前版本：**v0.15.9**
+> 当前版本：**v0.15.10**
 
 <a id="中文"></a>
 ## 中文（默认）
@@ -222,29 +222,29 @@ operation = sync
 
 ### 3. 配置自动化凭据
 
-为了让 v0.15.4 的完整无人值守链路真正工作，推荐配置以下 repository secrets：
+从 v0.15.10 起，GPTAuto 的推荐配置收敛为 **2 Token 模型**：
 
-**`GPTAUTO_SYNC_TOKEN`**
+**`GPTAUTO_GITHUB_TOKEN`**
 
-用于 Consumer Sync 更新 `.github/workflows/`。建议使用只绑定当前仓库的 fine-grained token，并授予：
+统一承担非 Copilot 的 GitHub 自动化职责，包括 Consumer release fan-out、Consumer Sync、Executor、Repair push、PR/merge 与 Reconcile。对消费仓库建议授予：
 
 ```text
 Contents: Read and write
 Pull requests: Read and write
 Workflows: Read and write
+Actions: Read and write
+Checks: Read
 ```
 
-没有这个 token 时，若 canonical 更新包含 workflow drift，Consumer Sync 会保持原子性：不把一半 runtime 更新写进仓库，而是明确提示 `Workflows write permission required`。
+canonical GPTAuto 仓库中的同名 secret 还需要能够访问所有已注册消费仓库，以便在新版本发布时发送 `repository_dispatch` 并等待消费仓库升级收敛。
 
-**`GPTAUTO_EXECUTOR_TOKEN`**
+旧的 `GPTAUTO_CONSUMER_TOKEN`、`GPTAUTO_SYNC_TOKEN`、`GPTAUTO_EXECUTOR_TOKEN` 仍作为兼容回退读取，因此已有仓库可以无中断迁移；新安装不再要求创建这三个独立 PAT。
 
-用于安全 merge / Reconcile 调度，以及 Repair patch 通过 targeted validation 后向同一 PR branch push。它必须能够更新当前仓库。GPTAuto Repair 不会退回使用 `GITHUB_TOKEN` 进行自动修复 push，因为 bot-authored PR 更新可能进入额外的 maintainer approval 状态。
+**`GPTAUTO_COPILOT_TOKEN`（可选但推荐独立）**
 
-**`GPTAUTO_COPILOT_TOKEN`（可选）**
+仅用于 Tier 2 Copilot CLI。它与 GitHub 仓库自动化凭据保持隔离，需要 Copilot Requests 权限；是否能实际调用 Copilot 仍取决于该账户/仓库可用的 Copilot entitlement/allowance。
 
-Tier 2 Copilot CLI 的可选专用 token。未配置时模板会尝试使用 workflow 的 token 与 `copilot-requests: write` 权限；是否能实际调用 Copilot 仍取决于该账户/仓库当时可用的 Copilot entitlement/allowance。
-
-GPTAuto v0.15.4 不要求 `GPTAUTO_AI_API_KEY`，也不依赖 `openai/codex-action` 才能维持核心生命周期。
+GPTAuto v0.15.10 不要求 `GPTAUTO_AI_API_KEY`，也不依赖 `openai/codex-action` 才能维持核心生命周期。
 
 ### 4. 使用三层 Repair
 
@@ -454,11 +454,10 @@ v0.15.4 reduces repair and CI wall-clock time without weakening terminal gates:
 
 1. Provide a product validation workflow named `CI` or `Build and Test` with `pull_request`, default-branch `push`, and `workflow_dispatch`. If you use another workflow, set repository variable `GPTAUTO_POST_MERGE_WORKFLOW`.
 2. Bootstrap `consumer-template/gptauto-sync.yml` as `.github/workflows/gptauto-sync.yml`, or copy all GPTAuto managed paths once.
-3. For reliable automatic workflow updates, configure `GPTAUTO_SYNC_TOKEN` with repository-scoped Contents/Pull requests/Workflows write permissions.
-4. Configure `GPTAUTO_EXECUTOR_TOKEN` when you want autonomous repair patches to be pushed back to the same PR branch.
-5. `GPTAUTO_COPILOT_TOKEN` is optional; Copilot CLI availability remains subject to the connected account/repository entitlement or allowance.
-6. Run **GPTAuto Consumer Sync** with `operation=sync`. Future canonical updates are proposed through CI-gated sync PRs.
-7. For release tasks, provide an enabled `Release` workflow that publishes verifiable GitHub Release evidence for the exact expected merge SHA.
+3. Configure `GPTAUTO_GITHUB_TOKEN` with repository-scoped Contents/Pull requests/Workflows/Actions write and Checks read permissions. Legacy `GPTAUTO_SYNC_TOKEN` / `GPTAUTO_EXECUTOR_TOKEN` remain accepted during migration.
+4. Configure `GPTAUTO_COPILOT_TOKEN` separately when Tier 2 Copilot CLI is desired.
+5. Run **GPTAuto Consumer Sync** with `operation=sync`. Future canonical updates are proposed through CI-gated sync PRs only when GPTAuto publishes a new version.
+6. For release tasks, provide an enabled `Release` workflow that publishes verifiable GitHub Release evidence for the exact expected merge SHA.
 
 ### Repair lifecycle
 

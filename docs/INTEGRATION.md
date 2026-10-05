@@ -16,18 +16,18 @@ GPTAuto 将真实 ChatGPT/Work 开发任务与 TASK_ID 绑定。宿主在开始�
 
 ### 自动同步
 
-每个消费仓库安装 `consumer-template/gptauto-sync.yml` 为 `.github/workflows/gptauto-sync.yml`。它每小时检查 canonical GPTAuto，发现 runtime/action 变化后建立同步分支并尝试创建 CI-gated PR。
+每个消费仓库安装 `consumer-template/gptauto-sync.yml` 为 `.github/workflows/gptauto-sync.yml`。它不再定时轮询 canonical GPTAuto。只有 GPTAuto 发布新版本时，canonical Release 才发送一次 release dispatch，消费仓库据此建立同步分支并创建 CI-gated PR。
 
 GitHub 有一个仓库级安全开关：默认 `GITHUB_TOKEN` 即使声明 `pull-requests: write`，在关闭 **Allow GitHub Actions to create and approve pull requests** 时仍不能创建 PR。v0.6.3 不再把这种平台策略误报成同步代码故障：
 
-- 若仓库允许 Actions 建 PR，继续使用 `github.token` 自动创建 PR。
-- 若仓库禁止该能力，可配置 repository secret `GPTAUTO_SYNC_TOKEN`，使用 fine-grained token，并仅授予当前仓库 Contents 与 Pull requests write 权限。
-- 若两者都没有，workflow 仍会安全地完成同步分支 push，并在 Summary 明确标记“PR creation blocked”，而不是以模糊错误失败。
+- 推荐配置 repository secret `GPTAUTO_GITHUB_TOKEN`，统一承担 Sync、Executor、Repair push、PR/merge 与 Reconcile；旧 `GPTAUTO_SYNC_TOKEN` / `GPTAUTO_EXECUTOR_TOKEN` 只作为迁移兼容。
+- 当操作不涉及 workflow 文件且仓库策略允许时，部分步骤仍可安全回退到 `github.token`；需要写 `.github/workflows/` 或自主 repair push 的步骤不会依赖不稳定的默认 token 权限。
+- canonical GPTAuto 仓库也应配置 `GPTAUTO_GITHUB_TOKEN`，并授予对注册消费仓库的必要访问权限，用于新版本 release fan-out 与收敛检查。
 
-这种 pull 模式仍不要求 GPTAuto canonical 仓库保存能写入所有项目的长期 PAT；凭据只存在于各消费仓库自己的 secret 中。
+Copilot CLI 使用独立的 `GPTAUTO_COPILOT_TOKEN`，不与仓库写权限 PAT 混用。
 
 ## English
 
 v0.6.3 correlates PR, post-merge push, CI and release events back to the originating pull request before deriving the observer TASK_ID. A merged PR is no longer terminal evidence. Normal tasks wait for successful post-merge CI; release-oriented tasks wait for both post-merge CI and release success.
 
-Consumer sync supports the repository's native `GITHUB_TOKEN` when Actions is allowed to create pull requests, or an optional least-privilege `GPTAUTO_SYNC_TOKEN` when that repository policy is disabled. When neither path can create a PR, the workflow keeps the prepared sync branch and reports an actionable policy warning instead of failing ambiguously.
+From v0.15.10, `GPTAUTO_GITHUB_TOKEN` is the primary credential for Consumer Sync, Executor, Repair push, PR/merge, and Reconcile. Legacy `GPTAUTO_SYNC_TOKEN` and `GPTAUTO_EXECUTOR_TOKEN` remain accepted as migration fallbacks. `GPTAUTO_COPILOT_TOKEN` stays isolated for Copilot CLI.
