@@ -4,8 +4,6 @@ on:
     workflows: [Release]
     types: [completed]
   workflow_dispatch:
-  schedule:
-    - cron: '*/15 * * * *'
 permissions:
   contents: read
   issues: write
