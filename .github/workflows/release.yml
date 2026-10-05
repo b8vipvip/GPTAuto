@@ -16,7 +16,7 @@ concurrency:
 jobs:
   verify-and-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,10 +43,12 @@ jobs:
           fi
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid semver tag: $tag"; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - run: python -m unittest discover -s tests -v
       - run: python -m compileall -q gptauto
-      - name: Publish exact main version once
-        id: publish
+
+      - name: Prepare exact release tag
+        id: tag
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -54,22 +56,23 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; canonical version is already published."
-            echo "created=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           if git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
             tagged="$(git rev-parse "$TAG^{commit}")"
-            [[ "$tagged" == "$SHA" ]] || { echo "::error::Unpublished tag $TAG points to $tagged, expected $SHA"; exit 1; }
+            [[ "$tagged" == "$SHA" ]] || { echo "::error::Tag $TAG points to $tagged, expected $SHA"; exit 1; }
           else
             git tag "$TAG" "$SHA"
             git push origin "refs/tags/$TAG"
           fi
-          gh release create "$TAG" --verify-tag --title "GPTAuto $TAG" --generate-notes --target "$SHA"
-          echo "created=true" >> "$GITHUB_OUTPUT"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release_exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG already exists at the exact commit; consumer fan-out is already complete for this published release."
+          else
+            echo "release_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Fan out release to registered consumers
-        if: steps.publish.outputs.created == 'true'
+        if: steps.tag.outputs.release_exists != 'true'
         env:
           GH_TOKEN: ${{ secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -79,15 +82,8 @@ jobs:
         run: |
           set -Eeuo pipefail
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            {
-              echo "## GPTAuto consumer fan-out"
-              echo "- Release: $TAG"
-              echo "- Immediate cross-repository dispatch: deferred"
-              echo "- Reason: GPTAUTO_CONSUMER_TOKEN / GPTAUTO_SYNC_TOKEN is not configured in GPTAuto."
-              echo "- Recovery: each consumer's scheduled GPTAuto Consumer Sync remains authoritative and will converge through a PR/CI gate."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning::No cross-repository fan-out token is configured; release remains valid and consumer scheduled sync is the recovery path."
-            exit 0
+            echo "::error::GPTAUTO_CONSUMER_TOKEN / GPTAUTO_SYNC_TOKEN is required. A new GPTAuto release cannot complete until every registered consumer has been updated."
+            exit 1
           fi
 
           python - <<'PY' > "$RUNNER_TEMP/gptauto-consumer-dispatch.tsv"
@@ -126,15 +122,129 @@ jobs:
             dispatched=$((dispatched + 1))
 
             if [[ "$has_release_listener" != "true" ]]; then
-              echo "Legacy consumer listener detected; bootstrapping with workflow_dispatch -> $repository"
+              echo "Legacy consumer listener detected; bootstrapping once with workflow_dispatch -> $repository"
               gh workflow run gptauto-sync.yml --repo "$repository" -f operation=sync
               bootstrapped=$((bootstrapped + 1))
             fi
           done < "$RUNNER_TEMP/gptauto-consumer-dispatch.tsv"
 
           {
-            echo "## GPTAuto consumer fan-out"
-            echo "- Release: $TAG"
+            echo "## GPTAuto release-driven consumer fan-out"
+            echo "- Target: $TAG"
             echo "- repository_dispatch requests: $dispatched"
-            echo "- legacy workflow_dispatch bootstraps: $bootstrapped"
+            echo "- legacy one-time bootstraps: $bootstrapped"
+            echo "- Periodic version polling: disabled"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Require registered consumers to install release
+        if: steps.tag.outputs.release_exists != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo "::error::Cross-repository token is required for the consumer completion gate."; exit 1; }
+
+          target_version="${TAG#v}"
+          python - <<'PY' > "$RUNNER_TEMP/gptauto-consumers.txt"
+          from gptauto.consumer_sync.registry import ConsumerRegistry
+          for item in ConsumerRegistry('.gptauto/consumers.json').sync_candidates():
+              print(item.repository)
+          PY
+
+          if [[ ! -s "$RUNNER_TEMP/gptauto-consumers.txt" ]]; then
+            echo "No active auto-sync consumers are registered."
+            exit 0
+          fi
+
+          max_attempts=80
+          for attempt in $(seq 1 "$max_attempts"); do
+            all_done=true
+            terminal_failure=false
+
+            while IFS= read -r repository; do
+              [[ -n "$repository" ]] || continue
+              default_branch="$(gh api "repos/$repository" --jq '.default_branch')"
+              installed="$(gh api "repos/$repository/contents/.github/gptauto/VERSION?ref=$default_branch" --jq '.content // ""' 2>/dev/null | base64 --decode 2>/dev/null | tr -d '\r\n' || true)"
+
+              if [[ "$installed" == "$target_version" ]]; then
+                continue
+              fi
+
+              all_done=false
+              sync_branch="chore/gptauto-sync-v$target_version"
+              pr_json="$(gh pr list --repo "$repository" --state all --head "$sync_branch" --limit 1 --json number,state,mergedAt,headRefOid,url 2>/dev/null || printf '[]')"
+              pr_number="$(jq -r '.[0].number // empty' <<<"$pr_json")"
+              pr_state="$(jq -r '.[0].state // empty' <<<"$pr_json")"
+              pr_merged_at="$(jq -r '.[0].mergedAt // empty' <<<"$pr_json")"
+              pr_head_sha="$(jq -r '.[0].headRefOid // empty' <<<"$pr_json")"
+
+              if [[ "$pr_state" == "CLOSED" && -z "$pr_merged_at" ]]; then
+                echo "::error::$repository sync PR #$pr_number was closed without merge; installed=${installed:-not-installed}, target=$target_version"
+                terminal_failure=true
+                continue
+              fi
+
+              if [[ -n "$pr_head_sha" ]]; then
+                checks="$(gh api -H 'Accept: application/vnd.github+json' "repos/$repository/commits/$pr_head_sha/check-runs?per_page=100" 2>/dev/null || printf '{"check_runs":[]}')"
+                failed="$(jq '[.check_runs[]? | select(.status == "completed" and (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required" or .conclusion == "stale" or .conclusion == "startup_failure"))] | length' <<<"$checks")"
+                if [[ "$failed" -gt 0 ]]; then
+                  echo "::error::$repository sync PR #$pr_number has $failed failed terminal check(s); target=$target_version"
+                  terminal_failure=true
+                fi
+              fi
+            done < "$RUNNER_TEMP/gptauto-consumers.txt"
+
+            if [[ "$terminal_failure" == "true" ]]; then
+              exit 1
+            fi
+
+            if [[ "$all_done" == "true" ]]; then
+              {
+                echo "## Consumer completion gate"
+                echo "- Target: $TAG"
+                echo "- Result: every registered active consumer is on $target_version"
+                echo "- Further periodic version checks: none"
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+            if (( attempt % 4 == 0 )); then
+              echo "Waiting for consumer sync PR/CI/merge completion ($attempt/$max_attempts)..."
+            fi
+            sleep 15
+          done
+
+          echo "::error::Timed out waiting for all registered consumers to install $TAG. The GitHub Release was not published."
+          while IFS= read -r repository; do
+            [[ -n "$repository" ]] || continue
+            default_branch="$(gh api "repos/$repository" --jq '.default_branch')"
+            installed="$(gh api "repos/$repository/contents/.github/gptauto/VERSION?ref=$default_branch" --jq '.content // ""' 2>/dev/null | base64 --decode 2>/dev/null | tr -d '\r\n' || true)"
+            echo "::error::$repository installed=${installed:-not-installed}, target=$target_version"
+          done < "$RUNNER_TEMP/gptauto-consumers.txt"
+          exit 1
+
+      - name: Publish exact release after consumer convergence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tagged="$(git rev-parse "$TAG^{commit}")"
+          [[ "$tagged" == "$SHA" ]] || { echo "::error::Tag $TAG moved to $tagged, expected $SHA"; exit 1; }
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already published."
+          else
+            gh release create "$TAG" --verify-tag --title "GPTAuto $TAG" --generate-notes --target "$SHA"
+          fi
+
+          {
+            echo "## GPTAuto release"
+            echo "- Published: $TAG"
+            echo "- Commit: $SHA"
+            echo "- Consumer synchronization: completed before publication"
           } >> "$GITHUB_STEP_SUMMARY"

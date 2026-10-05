@@ -2,7 +2,7 @@
 
 [中文](#中文) · [English](#english)
 
-> 当前版本：**v0.15.4**
+> 当前版本：**v0.15.9**
 
 <a id="中文"></a>
 ## 中文（默认）
@@ -212,7 +212,7 @@ consumer-template/gptauto-sync.yml
 .github/workflows/gptauto-reconcile.yml
 ```
 
-之后由 **GPTAuto Consumer Sync** 每小时检查 canonical GPTAuto；也可以在 Actions 页面手动运行 `workflow_dispatch`，选择：
+之后不再每小时检查 canonical GPTAuto。**只有 GPTAuto 发布新版本时**才会触发一次 Consumer Sync；canonical Release 会等待所有注册消费仓库完成 PR/CI/合并并把默认分支 `VERSION` 升级到目标版本后才正式发布。也可以在 Actions 页面手动运行 `workflow_dispatch`，选择：
 
 ```text
 operation = sync

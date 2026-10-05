@@ -42,4 +42,5 @@ Consumers use a shared lifecycle vocabulary:
 - Consumer updates are PR based.
 - Runtime and workflow files are upgraded atomically.
 - A failed sync does not leave a partially upgraded consumer.
-- Scheduled sync remains a recovery path; release fan-out is the fast path.
+- Consumer version updates are release-driven only. There is no periodic version poll after convergence.
+- A GPTAuto release is not published until every active auto-sync consumer reports the target VERSION on its default branch.
