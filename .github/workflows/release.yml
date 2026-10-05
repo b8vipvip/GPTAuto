@@ -74,7 +74,7 @@ jobs:
       - name: Fan out release to registered consumers
         if: steps.tag.outputs.release_exists != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GPTAUTO_GITHUB_TOKEN || secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN }}
+          GH_TOKEN: ${{ secrets.GPTAUTO_GITHUB_TOKEN || secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN || secrets.GPTAUTO_EXECUTOR_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
           SOURCE_REPOSITORY: ${{ github.repository }}
           SOURCE_SHA: ${{ github.sha }}
@@ -82,7 +82,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::GPTAUTO_GITHUB_TOKEN is required for cross-repository release fan-out. Legacy GPTAUTO_CONSUMER_TOKEN / GPTAUTO_SYNC_TOKEN remain accepted during migration. A new GPTAuto release cannot complete until every registered consumer has been updated."
+            echo "::error::GPTAUTO_GITHUB_TOKEN is required for cross-repository release fan-out. Legacy GPTAUTO_CONSUMER_TOKEN / GPTAUTO_SYNC_TOKEN / GPTAUTO_EXECUTOR_TOKEN remain accepted during migration. A new GPTAuto release cannot complete until every registered consumer has been updated."
             exit 1
           fi
 
@@ -139,7 +139,7 @@ jobs:
       - name: Require registered consumers to install release
         if: steps.tag.outputs.release_exists != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GPTAUTO_GITHUB_TOKEN || secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN }}
+          GH_TOKEN: ${{ secrets.GPTAUTO_GITHUB_TOKEN || secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN || secrets.GPTAUTO_EXECUTOR_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
         shell: bash
         run: |
