@@ -35,7 +35,7 @@ class ConsumerSyncTests(unittest.TestCase):
         self.assertEqual(plan[0].event, "gptauto_release_published")
         self.assertEqual(plan[0].version, "v0.15.6")
 
-    def test_release_workflow_fans_out_and_degrades_to_scheduled_recovery(self):
+    def test_release_workflow_requires_consumer_convergence_before_publication(self):
         text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertIn("Fan out release to registered consumers", text)
         self.assertIn("gptauto.consumer_sync.release_dispatch", text)
@@ -44,10 +44,13 @@ class ConsumerSyncTests(unittest.TestCase):
         self.assertIn("GPTAUTO_CONSUMER_TOKEN", text)
         self.assertIn("Legacy consumer listener detected", text)
         self.assertIn("gh workflow run gptauto-sync.yml", text)
-        self.assertIn("steps.publish.outputs.created == 'true'", text)
-        self.assertIn("Immediate cross-repository dispatch: deferred", text)
-        self.assertIn("scheduled GPTAuto Consumer Sync remains authoritative", text)
-        self.assertIn("exit 0", text)
+        self.assertIn("Require registered consumers to install release", text)
+        self.assertIn(".github/gptauto/VERSION", text)
+        self.assertIn("Publish exact release after consumer convergence", text)
+        self.assertIn("Periodic version polling: disabled", text)
+        self.assertIn("Further periodic version checks: none", text)
+        self.assertIn("release cannot complete until every registered consumer has been updated", text)
+        self.assertNotIn("scheduled GPTAuto Consumer Sync remains authoritative", text)
 
     def test_consumer_sync_accepts_exact_release_dispatch(self):
         text = Path("consumer-template/gptauto-sync.yml").read_text(encoding="utf-8")
@@ -58,7 +61,7 @@ class ConsumerSyncTests(unittest.TestCase):
         self.assertIn('[[ "$SOURCE_REPOSITORY" == "b8vipvip/GPTAuto" ]]', text)
         self.assertIn('git clone --depth 1 --branch "$REQUESTED_VERSION"', text)
         self.assertIn('"v$ver" != "$REQUESTED_VERSION"', text)
-        self.assertIn("schedule:", text)
+        self.assertNotIn("schedule:", text)
 
     def test_status_workflow_scans_public_consumers_without_cross_repo_token(self):
         text = Path(".github/workflows/consumer-sync-status.yml").read_text(encoding="utf-8")
@@ -73,6 +76,7 @@ class ConsumerSyncTests(unittest.TestCase):
         self.assertIn("GPTAuto consumer sync status", text)
         self.assertIn("gh issue edit", text)
         self.assertIn("gh issue create", text)
+        self.assertNotIn("schedule:", text)
 
 
 if __name__ == "__main__":
