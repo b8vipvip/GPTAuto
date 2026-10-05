@@ -22,7 +22,7 @@ jobs:
           python-version: '3.12'
       - name: Scan registered consumers
         env:
-          CROSS_REPO_TOKEN: ${{ secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN }}
+          CROSS_REPO_TOKEN: ${{ secrets.GPTAUTO_GITHUB_TOKEN || secrets.GPTAUTO_CONSUMER_TOKEN || secrets.GPTAUTO_SYNC_TOKEN }}
         shell: bash
         run: |
           set -Eeuo pipefail
