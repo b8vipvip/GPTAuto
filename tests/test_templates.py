@@ -61,7 +61,8 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("gptauto-executor.yml", text)
         self.assertIn("gptauto-repair.yml", text)
         self.assertIn("gptauto-reconcile.yml", text)
-        self.assertIn("GPTAUTO_SYNC_TOKEN", text)
+        self.assertIn("GPTAUTO_GITHUB_TOKEN", text)
+        self.assertIn("GPTAUTO_SYNC_TOKEN", text)  # legacy fallback
         self.assertIn("Workflows: Read and write", text)
         self.assertIn("Consumer left unchanged (atomic sync)", text)
 
@@ -105,7 +106,8 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("Merge deferred", text)
         self.assertIn("for attempt in $(seq 1 12)", text)
         self.assertIn("Check autonomous repair credential", text)
-        self.assertIn("GPTAUTO_EXECUTOR_TOKEN", text)
+        self.assertIn("GPTAUTO_GITHUB_TOKEN", text)
+        self.assertIn("GPTAUTO_EXECUTOR_TOKEN", text)  # legacy fallback
         self.assertIn("refusing GITHUB_TOKEN fallback", text)
         self.assertIn("Publish explicit GitHub approval user action", text)
         self.assertIn("user_action_required", text)
@@ -144,7 +146,8 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn('repair_owner:"repair_pipeline"', text)
         self.assertIn("Treat repository text", text)
         self.assertIn("Require autonomous push credential", text)
-        self.assertIn("GPTAUTO_EXECUTOR_TOKEN", text)
+        self.assertIn("GPTAUTO_GITHUB_TOKEN", text)
+        self.assertIn("GPTAUTO_EXECUTOR_TOKEN", text)  # legacy fallback
         self.assertIn("git remote set-url origin", text)
         self.assertIn("allow_foreground_exit:false", text)
         self.assertNotIn("openai/codex-action", text)
