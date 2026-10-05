@@ -41,7 +41,8 @@ class ConsumerSyncTests(unittest.TestCase):
         self.assertIn("gptauto.consumer_sync.release_dispatch", text)
         self.assertIn("repos/$repository/dispatches", text)
         self.assertIn("gptauto_release_published", Path("gptauto/consumer_sync/release_dispatch.py").read_text(encoding="utf-8"))
-        self.assertIn("GPTAUTO_CONSUMER_TOKEN", text)
+        self.assertIn("GPTAUTO_GITHUB_TOKEN", text)
+        self.assertIn("GPTAUTO_CONSUMER_TOKEN", text)  # legacy fallback
         self.assertIn("Legacy consumer listener detected", text)
         self.assertIn("gh workflow run gptauto-sync.yml", text)
         self.assertIn("Require registered consumers to install release", text)
