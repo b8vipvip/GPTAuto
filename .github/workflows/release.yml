@@ -58,7 +58,15 @@ jobs:
           set -Eeuo pipefail
           if git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
             tagged="$(git rev-parse "$TAG^{commit}")"
-            [[ "$tagged" == "$SHA" ]] || { echo "::error::Tag $TAG points to $tagged, expected $SHA"; exit 1; }
+            if [[ "$tagged" != "$SHA" ]]; then
+              if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+                echo "::notice::Maintenance push $SHA uses existing version $TAG tagged at $tagged; bump project version for a new Release. Leaving tag and release unchanged."
+                echo "release_exists=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "::error::Tag $TAG points to $tagged, expected $SHA"
+              exit 1
+            fi
           else
             git tag "$TAG" "$SHA"
             git push origin "refs/tags/$TAG"
