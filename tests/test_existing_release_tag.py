@@ -12,6 +12,7 @@ class ExistingTagPolicyTests(unittest.TestCase):
         self.assertIn('if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then', WORKFLOW)
         self.assertIn('echo "release_exists=true" >> "$GITHUB_OUTPUT"', WORKFLOW)
         self.assertIn('bump project version for a new Release', WORKFLOW)
+        self.assertIn("if: steps.tag.outputs.release_exists != 'true'", WORKFLOW)
 
     def test_explicit_release_with_wrong_sha_remains_an_error(self):
         self.assertIn('echo "::error::Tag $TAG points to $tagged, expected $SHA"', WORKFLOW)
