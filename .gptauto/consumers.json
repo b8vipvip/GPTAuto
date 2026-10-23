@@ -20,6 +20,13 @@
       "status": "active",
       "auto_sync": true,
       "sync_mode": "pull_request"
+    },
+    {
+      "repository": "b8vipvip/mv3c",
+      "status": "active",
+      "version": "v0.15.8",
+      "auto_sync": true,
+      "sync_mode": "pull_request"
     }
   ]
 }
