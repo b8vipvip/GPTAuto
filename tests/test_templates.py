@@ -68,6 +68,19 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn('merge_authority=false', text)
         self.assertIn("steps.capture.outputs.executor-eligible == 'true'", text)
 
+    def test_event_dedupe_and_reconcile_are_idempotent(self):
+        observer = Path("consumer-template/gptauto-observer.yml").read_text()
+        executor = Path("consumer-template/gptauto-executor.yml").read_text()
+        reconcile = Path("consumer-template/gptauto-reconcile.yml").read_text()
+        self.assertIn("steps.capture.outputs.dispatch-required == 'true'", observer)
+        self.assertIn("client_payload.task_id", executor)
+        self.assertIn("cancel-in-progress: false", observer)
+        self.assertIn("cancel-in-progress: false", executor)
+        self.assertIn("cancel-in-progress: false", reconcile)
+        self.assertNotIn("cancel-in-progress: true", reconcile)
+        self.assertIn("gptauto-reconcile-dispatched:$TASK_ID:$MERGE_SHA", executor)
+        self.assertIn("gptauto-reconcile-dispatched:$TASK_ID:$merge_sha", executor)
+
     def test_sync_installs_canonical_runtime_and_all_control_workflows(self):
         text = Path("consumer-template/gptauto-sync.yml").read_text(encoding="utf-8")
         self.assertIn("cp \"$tmp\"/GPTAuto/gptauto/*.py .github/gptauto/", text)
