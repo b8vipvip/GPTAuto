@@ -106,7 +106,7 @@ jobs:
                 --base "${{ github.event.repository.default_branch }}" --head "$branch"
               pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')"
             fi
-            gh pr merge "$pr" --auto --squash || echo "::notice::Auto-merge is unavailable; uninstall PR remains open for normal CI-gated merge."
+            echo "::notice::GPTAuto uninstall PR #$pr requires manual approval after successful product CI. Automatic uninstall merge is disabled."
             {
               echo "## GPTAuto uninstall prepared"
               echo "- PR: #$pr"
