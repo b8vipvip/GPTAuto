@@ -50,7 +50,7 @@ def _metadata_only(name: str) -> bool:
 
 
 def _hot_file(repo: str, path: str, status: str) -> bool:
-    if status not in {"A", "M"}:
+    if status != "M":
         return False
     if repo == "chat2api":
         if not path.startswith("app/") or path in {
