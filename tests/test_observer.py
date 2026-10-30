@@ -346,5 +346,61 @@ class ObserverTests(unittest.TestCase):
             self.assertEqual(state["metadata"]["event"], "pull_request")
 
 
+
+    def test_duplicate_observer_evidence_does_not_dispatch_twice(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = dict(
+                repo="o/r", event="pull_request", default_branch="main",
+                branch="fix/x", head_sha="abc", pr_number="12",
+                pr_title="Fix", pr_state="open", pr_merged="false",
+                log_root=d,
+            )
+            first = capture(**base, run_id="100", actor="dev",
+                            pr_ci_status="in_progress", pr_ci_run_id="77")
+            duplicate = capture(**base, run_id="101", actor="bot",
+                                pr_ci_status="in_progress", pr_ci_run_id="77")
+            self.assertTrue(first["dispatch_required"])
+            self.assertFalse(duplicate["dispatch_required"])
+            self.assertEqual(first["dispatch_key"], duplicate["dispatch_key"])
+            changed = capture(**base, run_id="102", actor="dev",
+                              pr_ci_status="completed", pr_ci_conclusion="success",
+                              pr_ci_run_id="77")
+            self.assertTrue(changed["dispatch_required"])
+            self.assertNotEqual(changed["dispatch_key"], duplicate["dispatch_key"])
+            attempt = capture(**base, run_id="103", actor="dev",
+                              pr_ci_status="completed", pr_ci_conclusion="success",
+                              pr_ci_run_id="77", pr_ci_run_attempt="2")
+            self.assertTrue(attempt["dispatch_required"])
+            self.assertFalse(capture(**base, run_id="104", actor="dev",
+                                     pr_ci_status="completed", pr_ci_conclusion="success",
+                                     pr_ci_run_id="77", pr_ci_run_attempt="2")["dispatch_required"])
+
+    def test_manual_recovery_bypasses_observation_dedupe(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = dict(repo="o/r", default_branch="main", branch="fix/x",
+                        head_sha="abc", pr_number="12", pr_title="Fix",
+                        pr_state="open", pr_merged="false", log_root=d)
+            capture(**base, event="pull_request", run_id="1")
+            forced = capture(**base, event="workflow_dispatch", run_id="2")
+            self.assertTrue(forced["dispatch_required"])
+            self.assertFalse(capture(**base, event="pull_request", run_id="3")["dispatch_required"])
+
+    def test_terminal_task_does_not_rerun_on_new_ci_event(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = dict(repo="o/r", default_branch="main", branch="main",
+                        head_sha="def", pr_number="12", pr_title="Fix",
+                        pr_state="closed", pr_merged="true",
+                        merge_sha="def", log_root=d,
+                        main_ci_conclusion="success")
+            first = capture(**base, event="workflow_run", run_id="1",
+                            main_ci_run_id="100", workflow_name="CI",
+                            workflow_conclusion="success")
+            second = capture(**base, event="workflow_run", run_id="2",
+                             main_ci_run_id="101", workflow_name="CI",
+                             workflow_conclusion="success")
+            self.assertEqual(first["phase"], "DONE")
+            self.assertEqual(second["phase"], "DONE")
+            self.assertFalse(second["dispatch_required"])
+
 if __name__ == "__main__":
     unittest.main()
