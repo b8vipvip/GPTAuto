@@ -54,6 +54,31 @@ class SmartUpdateTests(unittest.TestCase):
         p = self.check("mv3c", [("M", "docs/README.md")])
         self.assertEqual(p.mode, "checks-only")
 
+    def test_gptauto_managed_workflows_are_checks_only_for_all_consumers(self):
+        paths = [
+            ("M", ".github/workflows/gptauto-sync.yml"),
+            ("M", ".github/workflows/gptauto-observer.yml"),
+            ("M", ".github/gptauto/smart_update.py"),
+            ("A", ".github/GPTAUTO_SMART_UPDATE.md"),
+        ]
+        for repo in ("chat2api", "qnbot", "mv3c"):
+            with self.subTest(repo=repo):
+                plan = self.check(repo, paths)
+                self.assertEqual(plan.mode, "checks-only")
+                self.assertFalse(plan.full_build_required)
+                self.assertTrue(plan.required_checks)
+
+    def test_real_product_workflows_and_dependencies_still_require_image(self):
+        examples = {
+            "chat2api": "requirements.txt",
+            "qnbot": ".github/workflows/api-control-plane-ci.yml",
+            "mv3c": ".github/workflows/mv3c-build.yml",
+        }
+        for repo, path in examples.items():
+            with self.subTest(repo=repo):
+                plan = self.check(repo, [("M", path)])
+                self.assertEqual(plan.mode, "verified-image")
+
     def test_refuse_deleted_runtime_and_unclassified(self):
         p = self.check("chat2api", [("D", "app/models.py")])
         self.assertEqual(p.mode, "verified-image")
