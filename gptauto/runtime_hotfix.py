@@ -84,7 +84,13 @@ def verify_current_container(container_id: str, from_sha: str,
         if (state.get("deployed_sha") == from_sha and
             state.get("container_id") == container_id and
             state.get("image_id") == image):
-            return
+            try:
+                stamp = run("docker", "exec", container_id,
+                            "cat", "/app/.gptauto-runtime-sha")
+            except subprocess.CalledProcessError:
+                stamp = ""
+            if stamp == from_sha:
+                return
     info = json.loads(run("docker", "inspect", container_id))[0]
     if image_runtime_sha(info, env_key) != from_sha:
         raise HotfixError(
@@ -232,7 +238,23 @@ def main() -> int:
     p.add_argument("--container", required=True)
     p.add_argument("--state-file", type=Path, required=True)
     p.add_argument("--health-url", required=True)
+    p.add_argument("--baseline-only", action="store_true", help="Check whether an existing container can be hotpatched; no mutation")
     args = p.parse_args()
+    if args.baseline_only:
+        try:
+            info = json.loads(run("docker", "inspect", args.container))[0]
+            if not info.get("State", {}).get("Running"):
+                raise HotfixError("Container is not running")
+            verify_current_container(info["Id"], args.from_sha,
+                                     args.state_file, info["Image"],
+                                     MAP[args.repo][2])
+            print(json.dumps({"mode": "runtime-hotfix",
+                              "reason": "Exact live source baseline verified"}))
+        except (OSError, ValueError, HotfixError, subprocess.SubprocessError) as error:
+            # A mismatched baseline means the existing verified-image deployer
+            # is required. Never attempt a live overlay on an unproven image.
+            print(json.dumps({"mode": "verified-image", "reason": str(error)}))
+        return 0
     try:
         result = apply_hotfix(args.repo, args.worktree, args.from_sha,
                               args.target_sha, args.container,
