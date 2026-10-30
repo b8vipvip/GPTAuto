@@ -29,9 +29,12 @@ class ConsumerTemplateTests(unittest.TestCase):
 
     def test_observer_recovers_approval_and_dropped_event_liveness(self):
         text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
-        self.assertIn("types: [in_progress, completed]", text)
-        self.assertIn("schedule:", text)
-        self.assertIn("*/5 * * * *", text)
+        self.assertIn("types: [completed]", text)
+        self.assertNotIn("types: [in_progress, completed]", text)
+        self.assertNotIn("  schedule:", text)
+        self.assertNotIn("*/5 * * * *", text)
+        self.assertIn("watchdog:", text)
+        self.assertIn("inputs.watchdog == true", text)
         self.assertIn("Reconcile only stalled active PR completion leases", text)
         self.assertIn("workflow_approval_required", text)
         self.assertIn("action_required is USER_ACTION_REQUIRED", text)
@@ -44,8 +47,19 @@ class ConsumerTemplateTests(unittest.TestCase):
         text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
         self.assertIn("Cancel superseded pull-request workflow runs", text)
         self.assertIn('actions/runs/$run_id/cancel', text)
-        self.assertIn("Coalesce short in-progress CI", text)
-        self.assertIn("seq 1 12", text)
+        self.assertNotIn("Coalesce short in-progress CI", text)
+        self.assertIn("types: [completed]", text)
+
+    def test_idle_observer_has_no_unattended_scheduled_workflow(self):
+        observer = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
+        executor = Path("consumer-template/gptauto-executor.yml").read_text(encoding="utf-8")
+        self.assertNotIn("  schedule:", observer)
+        self.assertNotIn("types: [in_progress, completed]", observer)
+        self.assertIn("inputs.watchdog == true", observer)
+        self.assertIn('repair_count >= 3', executor)
+        self.assertIn("gptauto-repair-budget-exhausted:$TASK_ID", executor)
+        self.assertIn('gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments', executor)
+        self.assertIn('gh workflow run gptauto-repair.yml', executor)
 
     def test_observer_marks_non_default_base_prs_auxiliary(self):
         text = Path("consumer-template/gptauto-observer.yml").read_text(encoding="utf-8")
