@@ -63,8 +63,8 @@ class SmartUpdateTests(unittest.TestCase):
     def test_invalid_sha_and_unsafe_path(self):
         with self.assertRaises(ValueError):
             plan_update("qnbot", "main", B, [])
-        self.assertEqual(self.check("qnbot", [("M", "../escape.py")]).mode,
-                         "verified-image")
+        with self.assertRaises(ValueError):
+            self.check("qnbot", [("M", "../escape.py")])
 
     def test_no_op(self):
         self.assertEqual(plan_update("chat2api", A, A, []).mode, "no-op")
