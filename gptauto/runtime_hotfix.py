@@ -142,14 +142,12 @@ def apply_hotfix(repo: str, checkout: Path, from_sha: str, target_sha: str,
             raise HotfixError("Non-regular changed file: " + file)
         # No new files, symlinks or missing old files in this initial overlay
         # implementation; the classifier must add image mode for those.
-        old_blob = run("git", "-C", str(checkout), "show",
-                       from_sha + ":" + file).encode()
-        old_digest = hashlib.sha256(old_blob + b"\n").hexdigest()
+        old_blob = subprocess.check_output(
+            ["git", "-C", str(checkout), "show", from_sha + ":" + file],
+            timeout=25)
         expected = file_sha(host)
         current = run("docker", "exec", cid, "sha256sum", destination).split()[0]
-        # Git show adds one trailing newline via stdout.strip(); compare both
-        # byte sequences to handle files with or without a final newline.
-        if current not in {hashlib.sha256(old_blob).hexdigest(), old_digest}:
+        if current != hashlib.sha256(old_blob).hexdigest():
             raise HotfixError("Live file does not match old Git content: " + file)
         paths.append((file, host, destination, expected))
 
@@ -157,7 +155,15 @@ def apply_hotfix(repo: str, checkout: Path, from_sha: str, target_sha: str,
     backup_dir = Path(tempfile.mkdtemp(
         prefix="gptauto-hotfix-", dir=str(state_file.parent)))
     touched = []
+    original_stamp = backup_dir / "original-runtime.sha"
+    had_stamp = False
     try:
+        try:
+            run("docker", "cp", cid + ":/app/.gptauto-runtime-sha",
+                str(original_stamp), timeout=20)
+            had_stamp = True
+        except subprocess.CalledProcessError:
+            pass
         for i, (_file, host, destination, digest) in enumerate(paths):
             backup = backup_dir / (str(i) + ".original")
             run("docker", "cp", cid + ":" + destination, str(backup), timeout=35)
@@ -199,7 +205,11 @@ def apply_hotfix(repo: str, checkout: Path, from_sha: str, target_sha: str,
             except Exception as rollback_error:
                 failures.append(str(rollback_error))
         try:
-            run("docker", "exec", cid, "rm", "-f", "/app/.gptauto-runtime-sha")
+            if had_stamp:
+                run("docker", "cp", str(original_stamp),
+                    cid + ":/app/.gptauto-runtime-sha")
+            else:
+                run("docker", "exec", cid, "rm", "-f", "/app/.gptauto-runtime-sha")
             run("docker", "restart", cid, timeout=75)
             if not wait_health(health_url):
                 failures.append("Health check failed after rollback")
