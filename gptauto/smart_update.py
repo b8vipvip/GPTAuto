@@ -44,7 +44,7 @@ def _valid_path(name: str) -> bool:
 
 
 def _metadata_only(name: str) -> bool:
-    return (name.endswith((".md", ".rst", ".txt")) or
+    return (name.endswith((".md", ".rst")) or
             name.startswith(("docs/", "tests/", ".github/gptauto/", ".github/actions/")) or
             name in {"AGENTS.md", ".gitignore"})
 
