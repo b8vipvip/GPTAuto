@@ -126,7 +126,8 @@ class ConsumerTemplateTests(unittest.TestCase):
     def test_executor_dedupes_waits_and_requires_push_credential(self):
         text = Path("consumer-template/gptauto-executor.yml").read_text(encoding="utf-8")
         self.assertIn("client_payload.task_id", text)
-        self.assertIn("client_payload.head_sha", text)
+        self.assertIn("group: gptauto-executor-${{ github.event.client_payload.task_id", text)
+        self.assertNotIn("group: gptauto-executor-${{ github.event.client_payload.task_id || github.event.client_payload.observer_run_id || github.run_id }}-${{ github.event.client_payload.head_sha", text)
         self.assertIn("pending_runs", text)
         self.assertIn("failed_runs", text)
         self.assertIn("WAITING_GITHUB, not failure", text)
@@ -203,7 +204,7 @@ class ConsumerTemplateTests(unittest.TestCase):
         self.assertIn("Capture terminal DONE evidence directly", text)
         self.assertIn("Publish terminal foreground receipt", text)
         self.assertIn("POST_MERGE_RECOVERY_REQUIRED", text)
-        self.assertIn("cancel-in-progress: true", text)
+        self.assertIn("cancel-in-progress: false", text)
         self.assertNotIn("gh workflow run gptauto-observer.yml", text)
 
 
