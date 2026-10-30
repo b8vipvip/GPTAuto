@@ -2,7 +2,7 @@
 
 [中文](#中文) · [English](#english)
 
-> 当前版本：**v0.15.10**
+> 当前开发版本：**v0.15.11**（智能更新分类与运行时安全热修复）
 
 <a id="中文"></a>
 ## 中文（默认）
@@ -14,6 +14,19 @@ GPTAuto 是一个**按最终目标持续执行**的 GitHub 工程任务生命周
 当前 canonical 协议的核心约束是：
 
 > **Evidence 可以来自多个执行器，Decision Authority 只能有一个。**
+
+## v0.15.11：中央智能更新策略
+
+GitHub 提交后，GPTAuto 通过 `gptauto.smart_update` 以精确
+`from_sha` / `target_sha` 对改动分类：`checks-only`、
+`runtime-hotfix`、`client-build`、`verified-image`。
+Consumer Sync 向已登记项目分发同一分类器、宿主机热修复工具和
+`GPTAUTO_SMART_UPDATE.md`。热修复必须有目标 SHA 的 CI 成功证据、
+运行容器基线校验、每个文件 SHA256 校验及健康检查/回滚。
+生产部署始终由项目已有的唯一宿主机更新代理在管理员点击后执行。
+
+mv3c 的正式 Release 镜像证明和 GitHub Actions 预构建路径保留，
+不会用未认证的容器源码覆盖替代。详细见 [智能更新策略](docs/SMART_UPDATE.md)。
 
 ## 核心原则
 
