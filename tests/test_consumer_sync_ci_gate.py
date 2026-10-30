@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from gptauto.consumer_sync_ci_gate import verdict
 
 SHA = "a" * 40
@@ -37,6 +38,16 @@ class ConsumerMergeGateTests(unittest.TestCase):
         self.assertEqual(verdict("GPTWork", SHA, [
             run("CI"), run("Private Core Boundary"), run("Actions Policy Check")
         ])["status"], "passed")
+
+    def test_sync_template_never_unconditionally_auto_merges(self):
+        workflow = Path("consumer-template/gptauto-sync.yml").read_text(encoding="utf-8")
+        self.assertIn("--match-head-commit", workflow)
+        self.assertIn("gptauto.consumer_sync_ci_gate", workflow)
+        self.assertIn("gate_passed=true", workflow)
+        self.assertIn("if [[ \"$gate_passed\" != true ]]", workflow)
+        self.assertLess(workflow.index("gate_passed=true"),
+                        workflow.index('gh pr merge "$pr" --squash'))
+        self.assertNotIn('gh pr merge "$pr" --auto --squash', workflow)
 
     def test_unknown_repo_or_invalid_commit_blocked(self):
         self.assertEqual(verdict("unsupported", SHA, [run("CI")])["status"], "blocked")
