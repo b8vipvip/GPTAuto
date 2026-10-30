@@ -18,9 +18,9 @@ import urllib.request
 from pathlib import Path
 
 try:
-    from .smart_update import plan_for_git
+    from .smart_update import plan_for_git, _metadata_only
 except ImportError:
-    from smart_update import plan_for_git
+    from smart_update import plan_for_git, _metadata_only
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
 MAP = {
@@ -131,6 +131,8 @@ def apply_hotfix(repo: str, checkout: Path, from_sha: str, target_sha: str,
 
     paths = []
     for file in plan.changed_files:
+        if _metadata_only(file):
+            continue
         if not file.startswith(source_prefix):
             raise HotfixError("Source outside permitted runtime prefix")
         rel = file.removeprefix(source_prefix)
