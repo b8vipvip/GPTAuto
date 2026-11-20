@@ -64,6 +64,15 @@ class ConsumerSyncTests(unittest.TestCase):
         self.assertIn('"v$ver" != "$REQUESTED_VERSION"', text)
         self.assertNotIn("schedule:", text)
 
+    def test_manual_consumer_sync_resolves_latest_published_release_not_main_head(self):
+        text = Path("consumer-template/gptauto-sync.yml").read_text(encoding="utf-8")
+        self.assertIn("version:", text)
+        self.assertIn("default: latest", text)
+        self.assertIn("inputs.version", text)
+        self.assertIn("repos/b8vipvip/GPTAuto/releases/latest", text)
+        self.assertIn('git clone --depth 1 --branch "$REQUESTED_VERSION"', text)
+        self.assertNotIn('git clone --depth 1 https://github.com/b8vipvip/GPTAuto.git "$tmp/GPTAuto"', text)
+
     def test_status_workflow_scans_public_consumers_without_cross_repo_token(self):
         text = Path(".github/workflows/consumer-sync-status.yml").read_text(encoding="utf-8")
         self.assertIn("Consumer Sync Status", text)
