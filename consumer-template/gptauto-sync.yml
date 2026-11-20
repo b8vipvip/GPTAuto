@@ -12,6 +12,10 @@ on:
         options:
           - sync
           - uninstall
+      version:
+        description: Published GPTAuto release tag to install, or latest
+        required: true
+        default: latest
 permissions:
   contents: write
   pull-requests: write
@@ -33,7 +37,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GPTAUTO_GITHUB_TOKEN || secrets.GPTAUTO_SYNC_TOKEN || secrets.GPTAUTO_EXECUTOR_TOKEN || github.token }}
           HAS_GPTAUTO_WRITE_TOKEN: ${{ secrets.GPTAUTO_GITHUB_TOKEN != '' || secrets.GPTAUTO_SYNC_TOKEN != '' || secrets.GPTAUTO_EXECUTOR_TOKEN != '' }}
           OPERATION: ${{ github.event_name == 'workflow_dispatch' && inputs.operation || 'sync' }}
-          REQUESTED_VERSION: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.version || '' }}
+          REQUESTED_VERSION: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.version || inputs.version || 'latest' }}
           SOURCE_REPOSITORY: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.source_repository || '' }}
           SOURCE_SHA: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.source_sha || '' }}
         shell: bash
@@ -44,6 +48,13 @@ jobs:
             [[ "$SOURCE_REPOSITORY" == "b8vipvip/GPTAuto" ]] || { echo "::error::Rejected non-canonical GPTAuto release source: $SOURCE_REPOSITORY"; exit 1; }
             [[ "$REQUESTED_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid dispatched GPTAuto version: $REQUESTED_VERSION"; exit 1; }
             echo "Release dispatch accepted: source=$SOURCE_REPOSITORY sha=$SOURCE_SHA version=$REQUESTED_VERSION"
+          elif [[ "$OPERATION" == "sync" && "$REQUESTED_VERSION" == "latest" ]]; then
+            REQUESTED_VERSION="$(gh api repos/b8vipvip/GPTAuto/releases/latest --jq '.tag_name')"
+            [[ "$REQUESTED_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Unable to resolve latest published GPTAuto release"; exit 1; }
+            echo "Manual sync resolved latest published release: $REQUESTED_VERSION"
+          fi
+          if [[ "$OPERATION" == "sync" ]]; then
+            [[ "$REQUESTED_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid GPTAuto release version: $REQUESTED_VERSION"; exit 1; }
           fi
 
           managed_paths=(
@@ -118,11 +129,8 @@ jobs:
           fi
 
           tmp="$(mktemp -d)"
-          if [[ -n "$REQUESTED_VERSION" ]]; then
-            git clone --depth 1 --branch "$REQUESTED_VERSION" https://github.com/b8vipvip/GPTAuto.git "$tmp/GPTAuto"
-          else
-            git clone --depth 1 https://github.com/b8vipvip/GPTAuto.git "$tmp/GPTAuto"
-          fi
+          [[ -n "$REQUESTED_VERSION" ]] || { echo "::error::No published GPTAuto release version resolved"; exit 1; }
+          git clone --depth 1 --branch "$REQUESTED_VERSION" https://github.com/b8vipvip/GPTAuto.git "$tmp/GPTAuto"
           mkdir -p .github/gptauto .github/actions/upload-gptauto-log .github/workflows
           cp "$tmp"/GPTAuto/gptauto/*.py .github/gptauto/
           cp "$tmp"/GPTAuto/docs/SMART_UPDATE.md .github/GPTAUTO_SMART_UPDATE.md

@@ -32,8 +32,8 @@ b8vipvip/GPTAuto/consumer-template/gptauto-sync.yml
 首次安装后：
 
 1. 打开 **Actions → GPTAuto Consumer Sync → Run workflow**。
-2. `operation` 选择 `sync`。
-3. Sync 会从 canonical GPTAuto 拉取当前版本，生成 `chore/gptauto-sync-vX.Y.Z` 分支并创建 PR。
+2. `operation` 选择 `sync`；`version` 默认选择 `latest`，也可以显式填写 `vX.Y.Z`。
+3. Sync 会解析最新的**已发布 Release 标签**（不会从未经发布的 main HEAD 安装），或按指定标签下载，生成 `chore/gptauto-sync-vX.Y.Z` 分支并创建 PR。
 4. 目标仓库自己的 CI 仍然是安全门。PR 合并后 GPTAuto 才正式生效。
 
 安装的 managed files 包括：
@@ -53,7 +53,7 @@ b8vipvip/GPTAuto/consumer-template/gptauto-sync.yml
 正常情况下不需要手工更新。**只有 GPTAuto 发布新版本时**，canonical Release 才会向已注册消费仓库发送一次同步事件，创建/刷新同步 PR，并等待消费仓库 CI、合并以及默认分支 `VERSION` 全部升级成功。升级完成后不会继续定时检查版本。也可以手工运行：
 
 ```text
-Actions → GPTAuto Consumer Sync → Run workflow → operation=sync
+Actions → GPTAuto Consumer Sync → Run workflow → operation=sync, version=latest
 ```
 
 同步是原子的：如果 canonical 版本包含 workflow 变化而 `GPTAUTO_GITHUB_TOKEN`（或兼容的旧 `GPTAUTO_SYNC_TOKEN`）缺少 Workflows write，Sync 不会只更新一部分文件或错误提升 VERSION，而会留下明确的阻塞 issue。
